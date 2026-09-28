@@ -640,6 +640,104 @@ V6 will preserve strict tenant boundaries throughout asynchronous processing:
 - queue payloads exclude exchange secrets and unnecessary personal data;
 - per-tenant quotas prevent one user from exhausting shared capacity.
 
+### Credential vault and decryption boundary
+
+The V5 encrypted database blob is a migration source, not the final V6 vault
+model. V6 will use envelope encryption with a random data-encryption key per
+credential. The credential ciphertext and wrapped data key are stored with a
+key version, algorithm identifier, tenant identity, venue identity, and
+credential identity as authenticated context. A managed KMS or HSM-backed key
+encrypts or unwraps the data keys; the root key is never distributed as a
+shared application environment variable.
+
+Credential records separate non-secret routing metadata from secret material.
+The API can list the venue, environment, market scope, key hint, status, and
+assigned egress pool without decrypting the credential. Credential creation,
+replacement, validation, and revocation are handled through a narrow credential
+service. General API, evaluator, level-engine, notification, AI, backtest, and
+strategy-sandbox processes have no decrypt permission.
+
+The account-partitioned execution gateway obtains a credential by opaque
+reference, verifies tenant and deployment ownership, and decrypts it just in
+time under its workload identity. Plaintext credentials:
+
+- never appear in event, intent, checkpoint, cache, analytics, or log payloads;
+- remain only in the authorized execution process for a bounded in-memory
+  lifetime;
+- are redacted from errors, traces, crash reports, and administrative views;
+- are never returned after creation;
+- can be revoked or replaced without rewriting strategy definitions;
+- generate an auditable access event containing identity and purpose but no
+  secret value.
+
+Key rotation is versioned. KMS key rotation normally rewraps data keys without
+exposing exchange secrets to application code. Exchange API-key rotation uses a
+bounded dual-key transition when the venue permits it, verifies the replacement
+through the execution boundary, then revokes the old key. Backups contain only
+encrypted blobs and wrapped keys and use an independent storage-encryption key.
+
+### Deterministic exchange egress and IP allowlists
+
+Inbound load balancer addresses are unrelated to exchange API allowlists.
+Every private exchange REST request and authenticated private stream must leave
+through a dedicated execution egress path with stable public addresses. API,
+market-data, AI, reporting, and batch workloads use separate egress paths and
+cannot originate authenticated exchange traffic.
+
+Each credential is assigned an immutable `egress_pool_id` when it is enrolled.
+An egress pool contains a small, capacity-tested set of static IPv4 addresses
+distributed across availability zones. Execution pods may scale or move among
+nodes behind that pool without changing the source addresses observed by the
+venue. The credential UI and API return the authoritative address set for the
+assigned pool, not the address of whichever API replica handled the request.
+
+The initial model uses a small number of pools per venue and region:
+
+```text
+credential -> venue/region egress pool -> private execution subnet
+           -> highly available NAT or egress gateway -> static IPv4 set
+           -> venue private REST and WebSocket endpoints
+```
+
+Credentials are consistently assigned to pools so adding workers does not
+require users to edit exchange allowlists. New pools accept new credentials.
+Moving an existing credential to another pool is an explicit migration with a
+dual-allowlist window, connectivity test, execution drain, ownership transfer,
+and removal of the old addresses. It is never an automatic side effect of
+autoscaling.
+
+The egress design must enforce:
+
+- at least two failure domains while staying within each venue's documented IP
+  allowlist limit;
+- fixed IPv4 source addresses for venues that do not support IPv6 allowlisting;
+- default-deny network policy so only execution and reconciliation workloads
+  can reach authenticated venue endpoints through the protected egress path;
+- destination policy, connection limits, flow logs, and alerts for unexpected
+  destinations or source identities;
+- separate pools for live and non-live traffic where operationally practical;
+- capacity tracking by destination, connection count, bandwidth, and source
+  port utilization;
+- no direct public address on execution pods or nodes.
+
+The active-passive disaster-recovery region has its own stable address set.
+Users are instructed to allowlist both the active and designated standby sets
+when the venue limit permits it. Regional promotion is blocked if the
+credential has not verified its standby egress addresses. If a venue cannot
+hold both sets, recovery for that credential requires an explicit allowlist
+change and remains unavailable for automatic regional failover.
+
+The platform will expose two different diagnostics:
+
+1. an operator-only probe that verifies every configured egress-pool address
+   from inside the corresponding execution network;
+2. a tenant-facing credential view that reports the assigned allowlist
+   addresses, last successful venue verification, and whether standby egress is
+   ready.
+
+An API-replica public-IP discovery endpoint is not an authoritative V6
+allowlist mechanism and will be retired from the hyperscale profile.
+
 ## Migration plan
 
 V6 will be delivered through reversible stages. A stage cannot advance until
@@ -695,8 +793,17 @@ decision and create no duplicate intent.
 - Enforce global account rate limits, stable client order IDs, fencing, and
   uncertain-order reconciliation.
 - Keep virtual settlement physically and logically isolated from live adapters.
+- Introduce the envelope-encrypted credential vault and remove decrypt
+  permission from API, evaluator, batch, AI, and strategy-sandbox roles.
+- Assign credentials to stable venue and region egress pools, publish the
+  authoritative allowlist addresses, and route all private venue traffic
+  through those pools.
+- Migrate existing credentials from the shared Fernet key in bounded batches
+  with audit records, verification, retry, and rollback tooling.
 
-**Exit gate:** fault-injection tests produce zero duplicate live orders.
+**Exit gate:** fault-injection tests produce zero duplicate live orders; no
+unauthorized workload can decrypt a credential or reach a private venue path;
+worker and zone failover preserve the credential's published source-IP set.
 
 ### Phase 5: real-time grid, DCA, and protection engine
 
@@ -816,6 +923,9 @@ The following decisions require focused RFCs and benchmarks:
 6. Event schema registry and compatibility policy.
 7. Regional event and database replication mechanism.
 8. Supported V6 strategy contracts and resource classes.
+9. Managed KMS/HSM provider, envelope format, and credential rotation policy.
+10. Per-venue egress-pool size, IP limits, capacity, and disaster-recovery
+    allowlist policy.
 
 ## Deliverables
 
@@ -840,3 +950,6 @@ V6 hyperscale work is complete when the repository contains:
 - [Amazon RDS Proxy concepts](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/rds-proxy.howitworks.html)
 - [Amazon RDS PostgreSQL read replicas](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_PostgreSQL.Replication.ReadReplicas.html)
 - [Amazon MSK broker best practices](https://docs.aws.amazon.com/msk/latest/developerguide/bestpractices.html)
+- [Amazon VPC NAT gateways](https://docs.aws.amazon.com/vpc/latest/userguide/vpc-nat-gateway.html)
+- [AWS centralized IPv4 egress](https://docs.aws.amazon.com/whitepapers/latest/building-scalable-secure-multi-vpc-network-infrastructure/using-nat-gateway-for-centralized-egress.html)
+- [Binance API-key IP restrictions](https://www.binance.com/en-AU/support/faq/detail/360002502072)
