@@ -126,6 +126,30 @@ encrypted with the previous `CREDENTIAL_ENCRYPTION_KEY` until they have been
 re-encrypted or re-entered; changing that key without a migration makes stored
 credentials unreadable.
 
+### September 2026 — Alpaca endpoint validation and strategy compiler isolation (resolved)
+
+Two authenticated attack paths were resolved on **September 29, 2026**. The
+Alpaca credential flow previously accepted a client-supplied API base URL,
+which could cause the backend to send an authenticated request to an
+attacker-selected network endpoint. Strategy compilation also executed the
+strategy `initialize` callback outside the hard process boundary used for the
+initial source evaluation, allowing a malicious callback to consume a web
+worker indefinitely.
+
+QuantDinger now rejects API-supplied Alpaca endpoint overrides, restricts
+Alpaca trading endpoints to the official paper and live hosts, and performs
+strategy discovery in a disposable process with a clean environment, a hard
+wall-clock deadline, bounded output, and operating-system memory/CPU resource
+limits where supported. These protections are mandatory and do not depend on
+an opt-in deployment flag. The fixes are included in commit
+[`f8e0a64`](https://github.com/OpenByteInc/QuantDinger/commit/f8e0a64be99a1f1e6669cc54f1ca8f8c42c33aa4).
+
+Operators should upgrade to the latest supported revision. If untrusted users
+could access the affected Alpaca credential endpoints, rotate the relevant
+Alpaca API credentials and review outbound network and application logs. The
+strategy compiler issue affected availability and did not by itself expose
+credentials or trading data.
+
 ## Security Acknowledgments
 
 - **Risma Ajul**, security researcher — responsibly disclosed the critical JWT
@@ -140,6 +164,11 @@ credentials unreadable.
   improper trust of client-supplied proxy IP headers in September 2026. The
   report helped strengthen QuantDinger's IP-based authentication and anti-abuse
   controls.
+- **Dan Aridor and the [SPR{K3](https://sprk3.com/) security research team** —
+  responsibly disclosed the Alpaca outbound-request and strategy compiler
+  resource-exhaustion issues resolved in September 2026. Their clear reports,
+  contained proofs of concept, and coordinated-disclosure approach helped us
+  validate and remediate both issues safely.
 
 ---
 
