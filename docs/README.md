@@ -96,6 +96,13 @@ ownership or shared state.
   [SMS](deployment/NOTIFICATION_SMS_CONFIG_EN.md), and
   [Telegram](deployment/NOTIFICATION_TELEGRAM_CONFIG_EN.md)
 
+### Architecture and scale planning
+
+- [Architecture overview](architecture/README.md)
+- [Concurrency model](architecture/CONCURRENCY_MODEL.md)
+- [Process and task ownership](architecture/PROCESS_ROLES_AND_TASKS.md)
+- [V6 hyperscale architecture plan](architecture/V6_HYPERSCALE_ARCHITECTURE_PLAN.md)
+
 ### Trading and research
 
 - [Strategy API V2 development](trading/STRATEGY_DEV_GUIDE.md)
