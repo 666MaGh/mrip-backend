@@ -417,6 +417,123 @@ purchase specification. The all-one-minute workload is expected to require
 approximately 700-1,500 application vCPUs depending on strategy CPU cost and
 completion SLO.
 
+## Deployment packaging and elastic expansion
+
+V6 must be deployable at small scale without creating a second architecture
+that has to be replaced during growth. The same versioned service images,
+configuration schema, event contracts, database migrations, health checks, and
+operational controls will be used in every supported deployment profile.
+
+| Profile | Intended use | Runtime shape |
+| --- | --- | --- |
+| Developer | Local development and deterministic integration tests | Docker Compose with single-replica services and replaceable local dependencies |
+| Production starter | Small self-hosted or managed installation | Container platform with at least two API replicas, dedicated worker roles, managed PostgreSQL and Redis-compatible state |
+| Hyperscale | Multi-AZ managed production | Kubernetes, managed event backbone, partitioned worker pools, multi-AZ data services, and separate live and batch capacity |
+
+Docker Compose remains a development and small-installation package. It is not
+the 100,000-strategy scheduler. Production starter and hyperscale deployments
+must run the same application artifacts with different replica counts and
+infrastructure adapters rather than environment-specific application forks.
+
+### Release artifacts and infrastructure as code
+
+Each V6 release will publish immutable, content-addressed images for explicit
+process roles. A single source revision may produce role-specific images or a
+shared image with fixed entrypoints, but runtime command selection must be
+declarative and reviewable. Mutable `latest` tags are excluded from production
+rollouts.
+
+The deployment repository will provide:
+
+- Terraform or OpenTofu modules for network, Kubernetes, database, event
+  backbone, hot-state service, object storage, workload identity, and secrets;
+- a versioned Helm chart, or an equivalent declarative package, with separate
+  deployments for API, push gateway, market ingestion, evaluators, level
+  engines, execution gateways, reconciliation, notifications, and batch jobs;
+- checked-in environment overlays for development, staging, and production,
+  containing capacity and routing differences but no secrets;
+- migration jobs, readiness checks, dashboards, alerts, disruption budgets,
+  topology-spread constraints, and network policies as release artifacts;
+- a rendered-manifest validation step in CI so configuration failures are found
+  before a cluster rollout.
+
+Secrets are referenced through workload identity and a managed secret store.
+They are not embedded in images, Helm values, event payloads, or GitOps state.
+
+### Stateless and stateful boundaries
+
+API, push, ingestion, evaluator, level-engine, and execution processes must be
+replaceable without relying on a pod filesystem or process-local ownership.
+Durable state belongs to PostgreSQL, the event log, object storage, or a
+versioned checkpoint store. Hot state may be cached in a partition owner, but
+the owner must be fenced and recoverable from a checkpoint plus replay.
+
+This boundary allows a deployment to add servers by increasing replicas and
+consumer capacity instead of copying databases or manually assigning users to
+machines. Kubernetes service discovery balances stateless service calls, while
+event partitions and leases assign stateful work.
+
+### Horizontal expansion procedure
+
+Normal expansion will follow this order:
+
+1. provision or enlarge the appropriate node pool through infrastructure code;
+2. add service replicas while keeping them unready for workload admission;
+3. restore caches, establish venue streams, and pass dependency health checks;
+4. join the relevant consumer group and transfer partitions through the drain
+   and fencing protocol;
+5. verify queue age, evaluation latency, reconciliation health, and error budget;
+6. admit additional strategies only after measured spare capacity is available.
+
+Scale-in reverses this sequence. A worker first stops accepting new ownership,
+checkpoints dirty state, commits safe offsets, transfers partitions, and only
+then terminates. Forceful process termination is tested as a recovery case but
+is not the normal scale-in mechanism.
+
+Increasing replica count does not increase concurrency past the available event
+partitions. Partition expansion is therefore a planned capacity operation. It
+must preserve key ordering, use a compatible partitioning scheme, and include a
+rebalancing plan. Account execution partitions require particular care because
+changing ownership cannot permit two workers to submit orders concurrently for
+the same credential.
+
+### Rollout, compatibility, and rollback
+
+The platform will use rolling or canary deployment with a small partition set
+or tenant cohort before broad rollout. A release may consume the current and
+immediately preceding event and checkpoint schema during the migration window.
+Producers switch only after compatible consumers are healthy.
+
+Database migrations use expand-and-contract changes. Destructive schema removal
+occurs only after old application versions are drained and rollback is no
+longer required. A rollback must restore the previous application version
+without rolling back acknowledged orders, fills, ledger entries, offsets, or
+fencing epochs.
+
+Live execution has stricter rollout policy than stateless APIs and batch pools:
+
+- execution gateways retain minimum replicas and zone diversity throughout a
+  deployment;
+- one credential partition has exactly one fenced owner at a time;
+- canary execution begins with signal-only or designated test accounts;
+- automated rollback is disabled for ambiguous order-submission failures until
+  reconciliation determines the venue result;
+- emergency stop remains reachable independently of the release being rolled
+  out.
+
+### Portable operating contract
+
+The first production reference may use one cloud provider, but application
+services will depend on portable contracts: OCI images, Kubernetes APIs,
+PostgreSQL, Kafka-compatible ordered streams, S3-compatible object storage, and
+a Redis-compatible hot-state interface. Provider-specific managed services are
+selected behind these contracts.
+
+Portability does not require identical infrastructure on every provider. It
+requires that a new region or provider can be created from versioned modules,
+receive a tested configuration, restore durable state, and pass the same
+conformance and load tests without application code changes.
+
 ## Load balancing and autoscaling
 
 HTTP load balancing and strategy workload distribution are different problems.
