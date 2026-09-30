@@ -447,7 +447,8 @@ def test_restart_recovery_repeats_live_preflight(monkeypatch):
     monkeypatch.setattr(restarted, "_preflight_live_strategy", lambda sid: checked.append(("restart", sid)))
     assert restarted.start_strategy(30) is True
     assert checked == [("first", 30), ("restart", 30)]
-    assert started == ["strategy-30", "strategy-30"]
+    assert len(started) == first.evaluator_threads + restarted.evaluator_threads
+    assert all(name.startswith("strategy-evaluator-") for name in started)
 
 
 def test_reconciliation_allocates_long_and_short_to_separate_strategies():

@@ -63,10 +63,11 @@ Use this mode for normal cloud deployment. It pulls backend, web frontend, and m
 mkdir -p ~/quantdinger
 cd ~/quantdinger
 curl -O https://raw.githubusercontent.com/OpenByteInc/QuantDinger/main/docker-compose.ghcr.yml
-curl -o backend.env https://raw.githubusercontent.com/OpenByteInc/QuantDinger/main/backend_api_python/env.example
+curl -O https://raw.githubusercontent.com/OpenByteInc/QuantDinger/main/.env.example
+cp .env.example .env
 ```
 
-Edit `backend.env` before first start:
+Edit `.env` before first start:
 
 ```ini
 ADMIN_USER=your_admin_user
@@ -75,9 +76,7 @@ FRONTEND_URL=https://app.example.com,https://m.example.com
 ALLOW_LOCAL_DESKTOP_BROKERS=false
 ```
 
-The GHCR backend entrypoint can generate `SECRET_KEY` on first start and write it back to `backend.env`. You may also set `SECRET_KEY` manually to a long random string.
-
-Create an optional project-root `.env` for Compose orchestration:
+The GHCR backend entrypoint can generate `SECRET_KEY` on first start and write it back to `.env`. You may also set `SECRET_KEY` manually to a long random string. The same file also contains Compose orchestration settings:
 
 ```ini
 FRONTEND_HOST=127.0.0.1
@@ -88,7 +87,7 @@ MOBILE_PORT=8889
 FRONTEND_URL=https://app.example.com,https://m.example.com
 BACKEND_PORT=127.0.0.1:5000
 DB_PORT=127.0.0.1:5432
-REDIS_PORT=127.0.0.1:6379
+REDIS_BIND=127.0.0.1:6379
 
 # Pin a release instead of floating latest, for example:
 # IMAGE_TAG=5.2.2
@@ -124,11 +123,11 @@ Use this mode only when you need to build the backend from local source.
 ```bash
 git clone https://github.com/OpenByteInc/QuantDinger.git
 cd QuantDinger
-cp backend_api_python/env.example backend_api_python/.env
+cp .env.example .env
 ./scripts/generate-secret-key.sh
 ```
 
-Edit `backend_api_python/.env`:
+Edit `.env`:
 
 ```ini
 ADMIN_USER=your_admin_user
@@ -136,8 +135,6 @@ ADMIN_PASSWORD=your_strong_password
 FRONTEND_URL=https://app.example.com,https://m.example.com
 ALLOW_LOCAL_DESKTOP_BROKERS=false
 ```
-
-Optionally create project-root `.env` with the same settings shown above. Compose expands and injects `FRONTEND_URL` from this file into the backend container, so set the production frontend origins here too and keep them aligned with the backend runtime env. Otherwise the Compose localhost default overrides the value in the backend runtime env.
 
 Start:
 
@@ -147,19 +144,63 @@ docker compose up -d --build
 docker compose ps
 ```
 
-## 4. Understand the Two Env Files
+## 4. Unified Environment File and Updates
 
-Keep these files separate:
+All deployment and application settings use one project-root file:
 
 | File | Used by | Purpose |
 |------|---------|---------|
-| `backend.env` | `docker-compose.ghcr.yml` backend container | Runtime app config: admin account, `SECRET_KEY`, LLM keys, OAuth, broker keys |
-| `backend_api_python/.env` | full repository backend container | Same runtime app config when building from source |
-| project-root `.env` | Docker Compose | Public frontend origins, ports, image tags, image paths, Postgres image/data options, image mirrors |
+| `.env` | Docker Compose and every backend process | Runtime settings, credentials, ports, image tags, database, Redis, Kafka, and worker settings |
 
-Do not put secrets such as exchange API keys into the project-root `.env` unless Compose explicitly needs them. The current Compose file explicitly injects `FRONTEND_URL`, so put that setting in the project-root `.env`; application secrets still belong in `backend.env` or `backend_api_python/.env`.
+After pulling an update, Compose runs the one-shot `env-sync` service before
+database and Kafka initialization. It appends new fields and imports values that
+exist only in legacy backend env files without replacing current values or
+comments. A timestamped backup is created only when `.env` changes. The manual
+command remains available for preview and maintenance:
 
-## 5. Configure Nginx
+```bash
+python scripts/sync_env.py --env-file .env --template .env.example --backup
+```
+
+The one-command installer performs the same merge whenever it is rerun. For a
+manual one-time old deployment migration, pass `--legacy backend.env` or
+`--legacy backend_api_python/.env`; legacy files remain untouched.
+
+## 5. Event runtime and replica settings
+
+The default stack now starts Kafka, a topic initializer, the Kafka audit
+consumer, strategy dispatcher workers, strategy evaluator workers, and trading
+workers. Kafka is internal infrastructure; keep port `29092` bound to loopback
+or a private network and never expose it directly to the Internet.
+
+Single-host replica counts belong in the project-root `.env`:
+
+```ini
+TRADING_WORKER_REPLICAS=1
+STRATEGY_DISPATCHER_REPLICAS=1
+STRATEGY_EVALUATOR_REPLICAS=1
+```
+
+The first-install default is one replica per role. This keeps a low-load
+single-host deployment predictable and reduces memory, database connections,
+and operational complexity. A single host can still run multiple replicas;
+increase them gradually after measuring CPU, Kafka lag, and strategy latency.
+
+After changing them, recreate only those roles:
+
+```bash
+docker compose -f docker-compose.ghcr.yml up -d --force-recreate \
+  trading-worker strategy-dispatcher-worker strategy-evaluator-worker
+```
+
+The default Compose file is not a multi-host cluster definition. Before adding
+application servers, move PostgreSQL, both Redis roles, and Kafka to shared
+external services and use an orchestrator or an equivalent deployment layer.
+See [distributed runtime deployment and scaling](DISTRIBUTED_RUNTIME_SCALING.md)
+for the release sequence, ownership model, rollback boundary, and 100,000-
+strategy prerequisites.
+
+## 6. Configure Nginx
 
 Install Nginx:
 
@@ -288,7 +329,7 @@ sudo ufw allow 'Nginx Full'
 sudo ufw enable
 ```
 
-## 6. Enable HTTPS
+## 7. Enable HTTPS
 
 ```bash
 sudo apt install -y certbot python3-certbot-nginx
@@ -305,7 +346,7 @@ https://app.example.com
 https://m.example.com
 ```
 
-## 7. Optional API Subdomain
+## 8. Optional API Subdomain
 
 The recommended setup stays same-origin while splitting traffic at the host reverse proxy:
 
@@ -336,7 +377,7 @@ server {
 
 Also set `FRONTEND_URL` in the backend runtime env to include every public frontend origin.
 
-## 8. Operations
+## 9. Operations
 
 For GHCR deployment:
 
@@ -344,6 +385,7 @@ For GHCR deployment:
 docker compose -f docker-compose.ghcr.yml ps
 docker compose -f docker-compose.ghcr.yml logs -f backend
 docker compose -f docker-compose.ghcr.yml logs -f postgres
+docker compose -f docker-compose.ghcr.yml logs -f kafka strategy-dispatcher-worker strategy-evaluator-worker trading-worker
 docker compose -f docker-compose.ghcr.yml restart backend
 ```
 
@@ -351,15 +393,19 @@ Update GHCR images:
 
 ```bash
 docker compose -f docker-compose.ghcr.yml pull
-docker compose -f docker-compose.ghcr.yml up -d
+docker compose -f docker-compose.ghcr.yml run --rm migration
+docker compose -f docker-compose.ghcr.yml run --rm kafka-init
+docker compose -f docker-compose.ghcr.yml up -d --remove-orphans
 ```
 
 For full repository deployment:
 
 ```bash
-git pull
-docker compose pull
-docker compose up -d --build
+git pull --ff-only
+docker compose build backend
+docker compose run --rm migration
+docker compose run --rm kafka-init
+docker compose up -d --remove-orphans
 ```
 
 Back up Postgres before major upgrades:
@@ -368,7 +414,7 @@ Back up Postgres before major upgrades:
 docker exec quantdinger-db pg_dump -U quantdinger quantdinger > quantdinger_backup.sql
 ```
 
-## 9. Postgres 18 and Existing Data
+## 10. Postgres 18 and Existing Data
 
 The current default Postgres image is `postgres:18.3-alpine`, with `PGDATA=/var/lib/postgresql/18/docker`.
 
@@ -396,7 +442,7 @@ docker compose up -d
 
 Do not use `down -v` on production data.
 
-## 10. Troubleshooting
+## 11. Troubleshooting
 
 ### Image pull failures
 
@@ -460,7 +506,7 @@ docker compose -f docker-compose.ghcr.yml logs --tail=100 backend
 
 If every audit record shows a private address such as `172.17.0.1`, `172.18.0.1`, or `172.19.0.1`, the backend is recording the Docker gateway instead of the real client. This commonly happens when the host proxy sends all traffic to port `8888` or `8889`, after which the frontend container proxies `/api/` a second time and replaces `X-Real-IP`.
 
-Use the split configuration from section 5:
+Use the split configuration from section 6:
 
 - send `/api/` on both Web and mobile domains directly to `127.0.0.1:5000`;
 - send Web page requests under `/` to `127.0.0.1:8888`;
@@ -528,7 +574,7 @@ If the stream still fails, search the proxy error log for `upstream timed out`, 
 
 ### Exchange or LLM network requests need a proxy
 
-For backend runtime outbound requests, set `PROXY_URL` in `backend.env` or `backend_api_python/.env`.
+For backend runtime outbound requests, set `PROXY_URL` in `.env`.
 
 Inside Docker, do not use `127.0.0.1` for a host proxy unless the proxy is running inside the same container. Use a reachable host address, for example:
 

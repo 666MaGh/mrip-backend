@@ -1579,7 +1579,12 @@ def admin_toggle_system_strategy():
         admin_user_id = getattr(g, 'user_id', None)
 
         if target == 'running':
-            svc.update_strategy_status(strategy_id, 'running')
+            try:
+                svc.update_strategy_status(strategy_id, 'running')
+            except Exception as exc:
+                if str(exc) == 'strategyV2.strategyLimitExceeded':
+                    return jsonify({'code': 0, 'msg': str(exc), 'data': None}), 409
+                raise
             ok = executor.start_strategy(strategy_id)
             if not ok:
                 svc.update_strategy_status(strategy_id, 'stopped')

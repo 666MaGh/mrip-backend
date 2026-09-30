@@ -125,6 +125,23 @@ def test_current_manifest_metadata_routes_to_grid_engine():
     }) == "grid"
 
 
+def test_manifest_trend_contract_overrides_stale_grid_runtime_metadata():
+    assert resolve_bot_type({
+        "trading_config": {
+            "bot_type": "grid",
+            "executor_type": "grid",
+            "bot_params": {
+                "gridCount": 20,
+                "lowerPrice": 0.98,
+                "upperPrice": 1.02,
+            },
+            "strategy_manifest": {
+                "metadata": {"strategy_family": "trend"},
+            },
+        },
+    }) == "trend"
+
+
 def test_legacy_grid_bot_params_route_to_resting_grid_engine():
     assert resolve_bot_type({
         "trading_config": {

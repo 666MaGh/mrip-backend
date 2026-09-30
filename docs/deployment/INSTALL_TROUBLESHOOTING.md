@@ -81,8 +81,8 @@ docker compose exec backend curl -f http://localhost:5000/api/health
 
 Check these first:
 
-- `.env` and `backend_api_python/.env` exist in source deployments;
-- the GHCR deployment references the generated `backend.env`;
+- the project-root `.env` exists and is mounted as `/app/.env`;
+- upgrades have synchronized missing keys from the latest `.env.example`;
 - `POSTGRES_PASSWORD`, `SECRET_KEY`, and `CREDENTIAL_ENCRYPTION_KEY` are not
   missing or placeholder values;
 - all services use the same PostgreSQL and Redis credentials;
@@ -96,7 +96,8 @@ For administrator or settings-save issues, use
 ```bash
 # Inspect status and recent logs
 docker compose ps
-docker compose logs --tail=100 backend trading-worker scheduler-worker
+docker compose logs --tail=100 backend kafka trading-worker \
+  strategy-dispatcher-worker strategy-evaluator-worker scheduler-worker
 
 # Recreate containers while retaining volumes
 docker compose up -d --force-recreate

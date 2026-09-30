@@ -193,6 +193,11 @@ class ExecutionEventRepository:
                 FROM qd_execution_events
                 WHERE processed_at IS NULL
                   AND next_attempt_at <= NOW()
+                  AND NOT EXISTS (
+                    SELECT 1
+                    FROM qd_grid_actor_events AS actor_event
+                    WHERE actor_event.execution_event_id = qd_execution_events.id
+                  )
                 ORDER BY received_at ASC, id ASC
                 LIMIT %s
                 """,
@@ -201,6 +206,19 @@ class ExecutionEventRepository:
             rows = [dict(row) for row in (cur.fetchall() or [])]
             cur.close()
         return rows
+
+    def get(self, event_id: int) -> Optional[Dict[str, Any]]:
+        with get_db_connection() as db:
+            cur = db.cursor()
+            try:
+                cur.execute(
+                    "SELECT * FROM qd_execution_events WHERE id = %s",
+                    (int(event_id),),
+                )
+                row = cur.fetchone()
+            finally:
+                cur.close()
+        return dict(row) if row else None
 
     def fee_components(self, event_id: int) -> List[Dict[str, Any]]:
         with get_db_connection() as db:

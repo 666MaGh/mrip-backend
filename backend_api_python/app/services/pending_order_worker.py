@@ -109,6 +109,7 @@ from app.services.pending_orders.broker_support import (
     redact_exchange_json as _redact_exchange_json,
 )
 from app.services.pending_orders.submission_recovery import SubmissionRecoveryMixin
+from app.services.pending_orders.claims import claim_pending_order
 from app.services.live_trading.binance import BinanceFuturesClient
 from app.services.live_trading.binance_spot import BinanceSpotClient
 from app.services.live_trading.okx import OkxClient
@@ -1378,31 +1379,7 @@ class PendingOrderWorker(
             return []
 
     def _mark_processing(self, order_id: int) -> bool:
-        try:
-            with get_db_connection() as db:
-                cur = db.cursor()
-                # Only claim if still pending to avoid double-processing.
-                cur.execute(
-                    """
-                    UPDATE pending_orders
-                    SET status = 'processing',
-                        attempts = COALESCE(attempts, 0) + 1,
-                        processed_at = NOW(),
-                        updated_at = NOW()
-                    WHERE id = %s AND status = 'pending'
-                    """,
-                    (int(order_id),),
-                )
-                claimed = getattr(cur, "rowcount", None)
-                db.commit()
-                cur.close()
-            # Only treat as success if we actually changed a row.
-            if claimed is None:
-                return True
-            return int(claimed) > 0
-        except Exception as e:
-            logger.warning(f"mark_processing failed: id={order_id}, err={e}")
-            return False
+        return claim_pending_order(order_id)
 
     def _dispatch_one(self, order_row: Dict[str, Any]) -> None:
         from app.services.strategy_runtime.cancellations import intercept_cancelled_dispatch

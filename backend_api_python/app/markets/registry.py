@@ -210,7 +210,13 @@ MARKET_MODULES: Dict[str, MarketModule] = {
 
 
 def _backend_env_path() -> Path:
-    return Path(__file__).resolve().parents[2] / ".env"
+    configured = os.environ.get("QUANTDINGER_ENV_FILE")
+    if configured:
+        return Path(configured)
+    backend_dir = Path(__file__).resolve().parents[2]
+    if backend_dir.name == "backend_api_python":
+        return backend_dir.parent / ".env"
+    return backend_dir / ".env"
 
 
 def load_runtime_env() -> Dict[str, str]:

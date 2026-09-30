@@ -81,6 +81,8 @@ CREATE TABLE IF NOT EXISTS qd_billing_plans (
     duration_days INTEGER NOT NULL DEFAULT 0,
     credits_once INTEGER NOT NULL DEFAULT 0,
     credits_monthly INTEGER NOT NULL DEFAULT 0,
+    strategy_limit INTEGER NOT NULL DEFAULT 10,
+    referral_eligible BOOLEAN NOT NULL DEFAULT FALSE,
     is_lifetime BOOLEAN NOT NULL DEFAULT FALSE,
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
     is_popular BOOLEAN NOT NULL DEFAULT FALSE,
@@ -622,6 +624,7 @@ CREATE TABLE IF NOT EXISTS qd_strategy_trades (
 CREATE INDEX IF NOT EXISTS idx_trades_user_id ON qd_strategy_trades(user_id);
 CREATE INDEX IF NOT EXISTS idx_trades_strategy_id ON qd_strategy_trades(strategy_id);
 CREATE INDEX IF NOT EXISTS idx_trades_created_at ON qd_strategy_trades(created_at);
+CREATE INDEX IF NOT EXISTS idx_trades_strategy_latest ON qd_strategy_trades(strategy_id, id DESC);
 CREATE INDEX IF NOT EXISTS idx_trades_strategy_symbol_canon ON qd_strategy_trades (strategy_id, market_type, symbol_canonical);
 CREATE INDEX IF NOT EXISTS idx_positions_strategy_leg ON qd_strategy_positions (strategy_id, market_type, symbol_canonical, side);
 
@@ -637,6 +640,67 @@ CREATE TABLE IF NOT EXISTS qd_strategy_virtual_accounts (
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
+
+ALTER TABLE qd_billing_plans ADD COLUMN IF NOT EXISTS strategy_limit INTEGER NOT NULL DEFAULT 10;
+ALTER TABLE qd_billing_plans ADD COLUMN IF NOT EXISTS referral_eligible BOOLEAN NOT NULL DEFAULT FALSE;
+
+CREATE TABLE IF NOT EXISTS qd_referral_reward_accounts (
+    user_id INTEGER PRIMARY KEY REFERENCES qd_users(id) ON DELETE CASCADE,
+    available_balance DECIMAL(20,2) NOT NULL DEFAULT 0,
+    pending_reward_balance DECIMAL(20,2) NOT NULL DEFAULT 0,
+    pending_withdrawal_balance DECIMAL(20,2) NOT NULL DEFAULT 0,
+    lifetime_earned DECIMAL(20,2) NOT NULL DEFAULT 0,
+    lifetime_paid DECIMAL(20,2) NOT NULL DEFAULT 0,
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS qd_referral_withdrawals (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES qd_users(id) ON DELETE CASCADE,
+    currency VARCHAR(10) NOT NULL,
+    chain VARCHAR(20) NOT NULL,
+    address VARCHAR(160) NOT NULL,
+    amount DECIMAL(20,2) NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'pending',
+    tx_hash VARCHAR(160) NOT NULL DEFAULT '',
+    review_note TEXT NOT NULL DEFAULT '',
+    operator_id INTEGER REFERENCES qd_users(id) ON DELETE SET NULL,
+    reviewed_at TIMESTAMP,
+    paid_at TIMESTAMP,
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_referral_withdrawals_user ON qd_referral_withdrawals(user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_referral_withdrawals_status ON qd_referral_withdrawals(status, created_at ASC);
+
+CREATE TABLE IF NOT EXISTS qd_referral_reward_ledger (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES qd_users(id) ON DELETE CASCADE,
+    action VARCHAR(40) NOT NULL,
+    amount DECIMAL(20,2) NOT NULL,
+    available_delta DECIMAL(20,2) NOT NULL DEFAULT 0,
+    pending_reward_delta DECIMAL(20,2) NOT NULL DEFAULT 0,
+    pending_withdrawal_delta DECIMAL(20,2) NOT NULL DEFAULT 0,
+    available_balance_after DECIMAL(20,2) NOT NULL DEFAULT 0,
+    pending_reward_balance_after DECIMAL(20,2) NOT NULL DEFAULT 0,
+    pending_withdrawal_balance_after DECIMAL(20,2) NOT NULL DEFAULT 0,
+    source_key VARCHAR(255) UNIQUE,
+    source_user_id INTEGER REFERENCES qd_users(id) ON DELETE SET NULL,
+    source_order_ref VARCHAR(255) NOT NULL DEFAULT '',
+    plan_code VARCHAR(64) NOT NULL DEFAULT '',
+    reward_level INTEGER,
+    reward_rate DECIMAL(8,4),
+    status VARCHAR(20) NOT NULL DEFAULT 'posted',
+    available_at TIMESTAMP,
+    withdrawal_id INTEGER REFERENCES qd_referral_withdrawals(id) ON DELETE SET NULL,
+    remark TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_referral_reward_ledger_user ON qd_referral_reward_ledger(user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_referral_reward_ledger_release ON qd_referral_reward_ledger(status, available_at);
 
 CREATE TABLE IF NOT EXISTS qd_strategy_virtual_orders (
     id SERIAL PRIMARY KEY,
@@ -723,6 +787,8 @@ CREATE INDEX IF NOT EXISTS idx_virtual_positions_strategy
 ON qd_strategy_virtual_positions(strategy_id, symbol_canonical, side);
 CREATE INDEX IF NOT EXISTS idx_virtual_trades_strategy_time
 ON qd_strategy_virtual_trades(strategy_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_virtual_trades_strategy_latest
+ON qd_strategy_virtual_trades(strategy_id, id DESC);
 CREATE INDEX IF NOT EXISTS idx_virtual_orders_strategy_time
 ON qd_strategy_virtual_orders(strategy_id, created_at);
 
@@ -987,6 +1053,11 @@ CREATE INDEX IF NOT EXISTS idx_pending_orders_user_id ON pending_orders(user_id)
 CREATE INDEX IF NOT EXISTS idx_pending_orders_status ON pending_orders(status);
 CREATE INDEX IF NOT EXISTS idx_pending_orders_strategy_id ON pending_orders(strategy_id);
 CREATE INDEX IF NOT EXISTS idx_pending_orders_strategy_run_id ON pending_orders(strategy_run_id);
+ALTER TABLE pending_orders
+    ADD COLUMN IF NOT EXISTS runtime_fencing_token BIGINT NOT NULL DEFAULT 0;
+CREATE INDEX IF NOT EXISTS idx_pending_orders_runtime_fence
+    ON pending_orders(strategy_id, runtime_fencing_token)
+    WHERE runtime_fencing_token > 0;
 
 -- =============================================================================
 -- 6. Strategy Notifications
@@ -1058,6 +1129,7 @@ CREATE TABLE IF NOT EXISTS qd_strategy_logs (
 
 CREATE INDEX IF NOT EXISTS idx_strategy_logs_strategy_id ON qd_strategy_logs(strategy_id);
 CREATE INDEX IF NOT EXISTS idx_strategy_logs_timestamp ON qd_strategy_logs(timestamp);
+CREATE INDEX IF NOT EXISTS idx_strategy_logs_strategy_latest ON qd_strategy_logs(strategy_id, id DESC);
 
 -- =============================================================================
 -- 7. Indicator Codes
@@ -2366,6 +2438,21 @@ CREATE TABLE IF NOT EXISTS strategy_runtime_state (
 );
 CREATE INDEX IF NOT EXISTS idx_strategy_runtime_state_strategy ON strategy_runtime_state(strategy_id);
 
+CREATE TABLE IF NOT EXISTS qd_strategy_event_subscriptions (
+    strategy_id INTEGER NOT NULL REFERENCES qd_strategies_trading(id) ON DELETE CASCADE,
+    event_type VARCHAR(80) NOT NULL,
+    partition_key VARCHAR(320) NOT NULL,
+    timeframe VARCHAR(20) NOT NULL DEFAULT '',
+    strategy_shard INTEGER NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (strategy_id, event_type, partition_key)
+);
+CREATE INDEX IF NOT EXISTS idx_strategy_event_subscription_lookup
+ON qd_strategy_event_subscriptions(event_type, partition_key, strategy_shard, strategy_id);
+CREATE INDEX IF NOT EXISTS idx_strategy_event_subscription_shard
+ON qd_strategy_event_subscriptions(strategy_shard, strategy_id);
+
 CREATE TABLE IF NOT EXISTS strategy_order_intents (
     id SERIAL PRIMARY KEY,
     strategy_run_id INTEGER NOT NULL DEFAULT 0,
@@ -2389,6 +2476,7 @@ CREATE TABLE IF NOT EXISTS strategy_order_intents (
     target_position_qty DECIMAL(28, 12),
     status VARCHAR(32) NOT NULL DEFAULT 'intent_created',
     client_order_id VARCHAR(100) NOT NULL DEFAULT '',
+    runtime_fencing_token BIGINT NOT NULL DEFAULT 0,
     exchange_order_id VARCHAR(100) NOT NULL DEFAULT '',
     payload_json JSONB NOT NULL DEFAULT '{}'::jsonb,
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
@@ -2396,6 +2484,8 @@ CREATE TABLE IF NOT EXISTS strategy_order_intents (
     UNIQUE(strategy_run_id, idempotency_key)
 );
 CREATE INDEX IF NOT EXISTS idx_strategy_order_intents_strategy ON strategy_order_intents(strategy_id, status);
+ALTER TABLE strategy_order_intents
+    ADD COLUMN IF NOT EXISTS runtime_fencing_token BIGINT NOT NULL DEFAULT 0;
 
 CREATE TABLE IF NOT EXISTS strategy_order_fills (
     id SERIAL PRIMARY KEY,
@@ -2495,12 +2585,54 @@ CREATE TABLE IF NOT EXISTS qd_execution_events (
     raw_json JSONB NOT NULL DEFAULT '{}'::jsonb,
     processed_at TIMESTAMP,
     process_attempts INTEGER NOT NULL DEFAULT 0,
-    process_error TEXT NOT NULL DEFAULT ''
+    process_error TEXT NOT NULL DEFAULT '',
+    next_attempt_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+ALTER TABLE qd_execution_events
+  ADD COLUMN IF NOT EXISTS next_attempt_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
 CREATE INDEX IF NOT EXISTS idx_execution_events_pending
   ON qd_execution_events(received_at, id) WHERE processed_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_execution_events_order
   ON qd_execution_events(credential_id, exchange_id, market_type, exchange_order_id);
+
+CREATE TABLE IF NOT EXISTS qd_grid_actor_state (
+    strategy_id INTEGER PRIMARY KEY REFERENCES qd_strategies_trading(id) ON DELETE CASCADE,
+    strategy_run_id BIGINT NOT NULL DEFAULT 0,
+    owner_id VARCHAR(160) NOT NULL DEFAULT '',
+    fencing_token BIGINT NOT NULL DEFAULT 0,
+    status VARCHAR(24) NOT NULL DEFAULT 'starting',
+    state_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+    last_execution_event_id BIGINT NOT NULL DEFAULT 0,
+    heartbeat_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    version BIGINT NOT NULL DEFAULT 1,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    CHECK (status IN ('starting', 'running', 'handoff', 'stopped', 'failed'))
+);
+CREATE INDEX IF NOT EXISTS idx_grid_actor_state_owner
+  ON qd_grid_actor_state(owner_id, heartbeat_at DESC);
+
+CREATE TABLE IF NOT EXISTS qd_grid_actor_events (
+    id BIGSERIAL PRIMARY KEY,
+    execution_event_id BIGINT NOT NULL UNIQUE
+      REFERENCES qd_execution_events(id) ON DELETE CASCADE,
+    strategy_id INTEGER NOT NULL REFERENCES qd_strategies_trading(id) ON DELETE CASCADE,
+    grid_order_id BIGINT NOT NULL REFERENCES qd_grid_resting_orders(id) ON DELETE CASCADE,
+    status VARCHAR(24) NOT NULL DEFAULT 'pending',
+    attempts INTEGER NOT NULL DEFAULT 0,
+    claimed_by VARCHAR(160) NOT NULL DEFAULT '',
+    fencing_token BIGINT NOT NULL DEFAULT 0,
+    available_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    lease_expires_at TIMESTAMP,
+    completed_at TIMESTAMP,
+    error_message TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    CHECK (status IN ('pending', 'processing', 'failed', 'completed', 'dead'))
+);
+CREATE INDEX IF NOT EXISTS idx_grid_actor_events_ready
+  ON qd_grid_actor_events(strategy_id, available_at, id)
+  WHERE status IN ('pending', 'failed', 'processing');
 
 CREATE TABLE IF NOT EXISTS qd_execution_fee_components (
     id BIGSERIAL PRIMARY KEY,
@@ -2618,11 +2750,55 @@ CREATE TABLE IF NOT EXISTS qd_worker_heartbeats (
     started_at TIMESTAMP NOT NULL DEFAULT NOW(),
     heartbeat_at TIMESTAMP NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
-    CHECK (role IN ('api', 'trading', 'scheduler', 'celery', 'celery-beat')),
+    CHECK (role IN ('api', 'trading', 'scheduler', 'celery', 'celery-beat', 'kafka-audit', 'strategy-dispatcher', 'strategy-evaluator')),
     CHECK (status IN ('running', 'stopped', 'failed'))
 );
+ALTER TABLE qd_worker_heartbeats
+    DROP CONSTRAINT IF EXISTS qd_worker_heartbeats_role_check;
+ALTER TABLE qd_worker_heartbeats
+    ADD CONSTRAINT qd_worker_heartbeats_role_check
+    CHECK (role IN (
+        'api', 'trading', 'scheduler', 'celery', 'celery-beat',
+        'kafka-audit', 'strategy-dispatcher', 'strategy-evaluator'
+    ));
 CREATE INDEX IF NOT EXISTS idx_worker_heartbeats_role
     ON qd_worker_heartbeats(role, heartbeat_at DESC);
+
+CREATE TABLE IF NOT EXISTS qd_event_inbox (
+    consumer_group VARCHAR(160) NOT NULL,
+    event_id VARCHAR(80) NOT NULL,
+    event_type VARCHAR(80) NOT NULL,
+    partition_key VARCHAR(320) NOT NULL,
+    status VARCHAR(24) NOT NULL DEFAULT 'processing',
+    attempts INTEGER NOT NULL DEFAULT 1,
+    claimed_by VARCHAR(160) NOT NULL DEFAULT '',
+    lease_expires_at TIMESTAMP,
+    error_message TEXT NOT NULL DEFAULT '',
+    result_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+    received_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    completed_at TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (consumer_group, event_id),
+    CHECK (status IN ('processing', 'completed', 'failed', 'dead'))
+);
+CREATE INDEX IF NOT EXISTS idx_event_inbox_claim
+    ON qd_event_inbox(consumer_group, status, lease_expires_at);
+CREATE INDEX IF NOT EXISTS idx_event_inbox_completed
+    ON qd_event_inbox(completed_at)
+    WHERE status = 'completed';
+
+CREATE TABLE IF NOT EXISTS qd_strategy_shard_leases (
+    strategy_shard INTEGER PRIMARY KEY,
+    owner_id VARCHAR(160) NOT NULL,
+    fencing_token BIGINT NOT NULL DEFAULT 1,
+    lease_expires_at TIMESTAMP NOT NULL,
+    heartbeat_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_strategy_shard_leases_expiry
+    ON qd_strategy_shard_leases(lease_expires_at);
+
 CREATE TABLE IF NOT EXISTS qd_process_leases (
     lease_key VARCHAR(128) PRIMARY KEY,
     owner_id VARCHAR(160) NOT NULL,

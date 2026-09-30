@@ -38,6 +38,7 @@ class LiveOrderRequest:
     ai_decision_filter: bool = False
     strategy_type: str = ""
     decision_context: dict[str, Any] | None = None
+    runtime_fencing_token: int = 0
 
 
 class StrategyV2OrderGateway:
@@ -163,6 +164,7 @@ class StrategyV2OrderGateway:
 
     def submit(self, request: LiveOrderRequest) -> int | None:
         request = self._validate(request)
+        self._assert_runtime_fence(request)
         if (
             request.execution_mode == "live"
             and request.ai_decision_filter
@@ -216,6 +218,7 @@ class StrategyV2OrderGateway:
             target_weight=signal.target_weight,
             target_notional=signal.target_notional,
             target_position_qty=signal.target_position_qty,
+            runtime_fencing_token=request.runtime_fencing_token,
             **signal.to_order_intent_kwargs(leverage=request.leverage),
         )
         if intent.existing and intent.status == "ai_rejected":
@@ -296,6 +299,7 @@ class StrategyV2OrderGateway:
             "sizing": request.sizing or {},
             "client_order_id": client_order_id,
             "ai_decision_filter": bool(request.ai_decision_filter),
+            "runtime_fencing_token": int(request.runtime_fencing_token or 0),
         }
         with get_db_connection() as db:
             cur = db.cursor()
@@ -305,10 +309,11 @@ class StrategyV2OrderGateway:
                   (user_id, strategy_id, symbol, signal_type, signal_ts, market_type,
                    order_type, amount, price, execution_mode, status, priority,
                    attempts, max_attempts, last_error, payload_json, strategy_run_id,
-                   order_intent_id, idempotency_key, created_at, updated_at)
+                   order_intent_id, idempotency_key, runtime_fencing_token,
+                   created_at, updated_at)
                 VALUES
                   (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'pending', 0,
-                   0, 10, '', %s, %s, %s, %s, NOW(), NOW())
+                   0, 10, '', %s, %s, %s, %s, %s, NOW(), NOW())
                 ON CONFLICT (idempotency_key) DO NOTHING
                 RETURNING id
                 """,
@@ -327,6 +332,7 @@ class StrategyV2OrderGateway:
                     request.strategy_run_id,
                     intent.id,
                     key,
+                    max(0, int(request.runtime_fencing_token or 0)),
                 ),
             )
             row = cur.fetchone() or {}
@@ -334,6 +340,30 @@ class StrategyV2OrderGateway:
             cur.close()
         pending_id = int(row.get("id") or 0)
         return pending_id or self._pending_id(key)
+
+    @staticmethod
+    def _assert_runtime_fence(request: LiveOrderRequest) -> None:
+        token = int(request.runtime_fencing_token or 0)
+        if token <= 0:
+            return
+        with get_db_connection() as db:
+            cur = db.cursor()
+            try:
+                cur.execute(
+                    """
+                    SELECT 1
+                    FROM qd_strategy_runtime_leases
+                    WHERE strategy_id = %s AND fencing_token = %s
+                      AND lease_expires_at >= NOW()
+                    LIMIT 1
+                    """,
+                    (int(request.strategy_id), token),
+                )
+                valid = cur.fetchone() is not None
+            finally:
+                cur.close()
+        if not valid:
+            raise RuntimeError("strategyRuntime.staleFencingToken")
 
     @staticmethod
     def _pending_id(key: str) -> int | None:

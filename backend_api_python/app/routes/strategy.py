@@ -48,7 +48,7 @@ from app.services.strategy_ai_workspace import (
     normalize_asset_type,
     set_strategy_ai_change_status,
 )
-from app.services.strategy import redact_strategy_row
+from app.services.strategy import StrategyLimitExceeded, redact_strategy_row
 from app.services.strategy_daily_pnl import load_strategy_daily_metrics
 from app.services.strategy_runtime.bot_type import resolve_bot_type
 from app.services.strategy_runtime.health import load_runtime_health
@@ -210,8 +210,15 @@ def start_strategy(strategy_id: int):
     if not row:
         return _error("strategyV2.strategyNotFound", 404)
     service = get_strategy_service()
-    if not service.update_strategy_status(strategy_id, "running", user_id=int(g.user_id)):
-        return _error("strategyV2.strategyNotFound", 404)
+    try:
+        if not service.update_strategy_status(strategy_id, "running", user_id=int(g.user_id)):
+            return _error("strategyV2.strategyNotFound", 404)
+    except StrategyLimitExceeded as exc:
+        return _error(
+            "strategyV2.strategyLimitExceeded",
+            409,
+            {"limit": exc.limit, "running": exc.running},
+        )
     executor = get_trading_executor()
     if executor.start_strategy(strategy_id):
         timeout = max(0.0, float(os.getenv("STRATEGY_COMMAND_START_WAIT_SEC", "8")))

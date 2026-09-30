@@ -301,7 +301,14 @@ class StrategyCommandRepository:
             cur = db.cursor()
             try:
                 cur.execute(
-                    "DELETE FROM qd_strategy_runtime_leases WHERE strategy_id = %s AND owner_id = %s",
+                    """
+                    UPDATE qd_strategy_runtime_leases
+                    SET owner_id = '',
+                        lease_expires_at = NOW() - INTERVAL '1 second',
+                        heartbeat_at = NOW(),
+                        updated_at = NOW()
+                    WHERE strategy_id = %s AND owner_id = %s
+                    """,
                     (int(strategy_id), owner_id),
                 )
                 db.commit()
