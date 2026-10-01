@@ -16,6 +16,18 @@ HIDDEN_PREFIXES = (
     "/api/alpaca",
     "/api/quick-trade",
     "/api/agent/v1/quick_trade",
+    "/api/account",
+    "/api/agent/v1/strategies",
+    "/api/agent/v1/runtime",
+    "/api/agent/v1/trading",
+)
+
+# Under /api/strategies only research/authoring rules may remain mounted.
+ALLOWED_STRATEGY_PREFIXES = (
+    "/api/strategies/generate",
+    "/api/strategies/verify",
+    "/api/strategies/ai-workspace",
+    "/api/strategies/script-",
 )
 
 _PROBE = """
@@ -69,6 +81,12 @@ def test_trading_routes_hidden_when_disabled(value):
     for rule in result["rules"]:
         assert not rule.startswith(HIDDEN_PREFIXES), f"trading route exposed: {rule}"
     assert result["credentials"] == 404
+    for rule in result["rules"]:
+        if rule.startswith("/api/strategies"):
+            assert rule.startswith(ALLOWED_STRATEGY_PREFIXES), f"live strategy route exposed: {rule}"
+    # Research/authoring routes stay available.
+    assert any(r.startswith("/api/strategies/script-sources") for r in result["rules"])
+    assert any(r.startswith("/api/backtest") for r in result["rules"])
 
 
 def test_trading_routes_present_when_enabled():
@@ -76,3 +94,6 @@ def test_trading_routes_present_when_enabled():
     exposed = {p for p in HIDDEN_PREFIXES if any(r.startswith(p) for r in result["rules"])}
     assert "/api/credentials" in exposed
     assert "/api/quick-trade" in exposed
+    assert any(r.endswith("/start") and r.startswith("/api/strategies/") for r in result["rules"])
+    assert "/api/account" in exposed
+    assert "/api/agent/v1/runtime" in exposed
