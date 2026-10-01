@@ -335,6 +335,12 @@ def _apply_init_sql(logger, *, strict: bool = False):
             _apply_migration_component(
                 conn,
                 logger,
+                name="mrip-options-snapshots-20261001",
+                path=Path(__file__).resolve().parent.parent.parent / "migrations" / "mrip_20261001_options_snapshots.sql",
+            )
+            _apply_migration_component(
+                conn,
+                logger,
                 name="market-symbols-master",
                 path=symbols_sql,
                 baseline_table="qd_market_symbols",
