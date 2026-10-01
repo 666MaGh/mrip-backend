@@ -14,17 +14,20 @@ Use one public domain with a host-level Nginx reverse proxy:
 - Docker `frontend` binds to `127.0.0.1:8888`
 - Docker `mobile` binds to `127.0.0.1:8889`
 - Docker `backend` binds to `127.0.0.1:5000`
-- Docker `postgres` and `redis` bind to localhost only
+- Docker `postgres`, both Redis roles, and Kafka stay on the private Docker
+  network; any diagnostic host bindings must remain loopback-only
 
-Only expose `80` and `443` to the public internet. Keep `5000`, `5432`, and `6379` private.
+Only expose `80` and `443` to the public internet. Keep `5000`, `5432`,
+`6379`, and `29092` private.
 
 ## 1. Prepare the Server
 
 Recommended baseline:
 
 - Ubuntu 22.04 / 24.04 or Debian 12
-- 2 vCPU / 4 GB RAM minimum; 4 vCPU / 8 GB RAM is better for AI-heavy use
-- 30 GB+ disk space
+- 4 vCPU / 8 GB RAM minimum for a light single-host installation
+- 8 vCPU / 16 GB RAM recommended when strategies, AI jobs, and backtests run together
+- 50 GB+ disk space, with additional capacity for PostgreSQL backups and Kafka retention
 - Security group or firewall allows `22`, `80`, and `443`
 - A domain such as `app.example.com`
 
@@ -90,7 +93,7 @@ DB_PORT=127.0.0.1:5432
 REDIS_BIND=127.0.0.1:6379
 
 # Pin a release instead of floating latest, for example:
-# IMAGE_TAG=5.2.2
+# IMAGE_TAG=5.5.1
 
 # Use a Docker Hub mirror for postgres/redis when needed:
 # IMAGE_PREFIX=docker.m.daocloud.io/library/
@@ -114,7 +117,12 @@ docker compose -f docker-compose.ghcr.yml up -d --force-recreate frontend mobile
 
 The `backend` container listening internally on port `5000` is part of the application contract and is expected to remain fixed. `BACKEND_PORT=127.0.0.1:5000` controls only the host binding; frontend containers reach the API through `backend:5000` on the Docker network. To change the user-facing local port, update `FRONTEND_PORT` / `MOBILE_PORT` and recreate the containers.
 
-In production, never publish `5000`, `5432`, or `6379` directly to the internet. Expose only `80/443` through BT Panel or 1Panel Nginx/OpenResty: send page requests to the host-local Web frontend (default `127.0.0.1:8888`) and send `/api/` directly to the backend at `127.0.0.1:5000`. This remains same-origin in the browser while preventing a second proxy hop in the frontend container from replacing the real client IP.
+In production, never publish `5000`, `5432`, `6379`, or `29092` directly to
+the internet. Expose only `80/443` through BT Panel or 1Panel Nginx/OpenResty:
+send page requests to the host-local Web frontend (default
+`127.0.0.1:8888`) and send `/api/` directly to the backend at
+`127.0.0.1:5000`. This remains same-origin in the browser while preventing a
+second proxy hop in the frontend container from replacing the real client IP.
 
 ### Optional: full repository deployment
 

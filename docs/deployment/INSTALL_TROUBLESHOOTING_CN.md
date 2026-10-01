@@ -11,11 +11,12 @@
 docker compose pull
 docker compose up -d
 docker compose ps
-docker compose logs --tail=100 postgres migration backend
+docker compose logs --tail=100 env-sync postgres redis redis-jobs kafka kafka-init migration backend
 ```
 
-请优先查看第一个失败的依赖服务，而不是只看最后出现的 `backend` 错误。正常启动顺序
-是 PostgreSQL 与 Redis、`migration`、API 和各 Worker。
+请优先查看第一个失败的依赖服务，而不是只看最后出现的 `backend` 错误。正常启动顺序是
+`env-sync`、PostgreSQL/两类 Redis/Kafka 状态服务、`migration` 与 `kafka-init`，然后才是
+API 和各 Worker。
 
 ## 镜像拉取失败
 

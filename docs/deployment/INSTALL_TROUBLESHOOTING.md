@@ -11,12 +11,12 @@ the repository root, next to `docker-compose.yml`.
 docker compose pull
 docker compose up -d
 docker compose ps
-docker compose logs --tail=100 postgres migration backend
+docker compose logs --tail=100 env-sync postgres redis redis-jobs kafka kafka-init migration backend
 ```
 
 Read the first failing dependency, not only the final `backend` error. The
-normal startup order is PostgreSQL and Redis, then `migration`, then the API and
-workers.
+normal startup order is `env-sync`, the PostgreSQL/Redis/Kafka state services,
+`migration` and `kafka-init`, then the API and workers.
 
 ## Image pull fails
 
