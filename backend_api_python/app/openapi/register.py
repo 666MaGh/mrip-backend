@@ -10,6 +10,7 @@ from __future__ import annotations
 from flask_smorest import Api
 
 from app.openapi.tags import ALL_TAGS
+from app.utils.trading_gate import trading_enabled
 
 
 # url_prefix -> OpenAPI tag (English)
@@ -72,18 +73,13 @@ def register_human_blueprints(api: Api) -> None:
     from app.routes.indicator import indicator_blp
     from app.routes.indicator_signal_alerts import indicator_signal_alerts_blp
     from app.routes.strategy import strategy_blp
-    from app.routes.credentials import credentials_blp
     from app.routes.dashboard import dashboard_blp
     from app.routes.settings import settings_blp
     from app.routes.portfolio import portfolio_blp
-    from app.routes.ibkr import ibkr_blp
-    from app.routes.alpaca import alpaca_blp
     from app.routes.global_market import global_market_blp
     from app.routes.community import community_blp
     from app.routes.fast_analysis import fast_analysis_blp
     from app.routes.billing import billing_blp
-    from app.routes.quick_trade import quick_trade_blp
-    from app.routes.quick_trade_event_radar import quick_trade_event_radar_blp
 
     registrations: list[tuple] = [
         (health_blp, ""),
@@ -101,19 +97,31 @@ def register_human_blueprints(api: Api) -> None:
         (indicator_blp, "/api/indicator"),
         (indicator_signal_alerts_blp, "/api/indicator"),
         (strategy_blp, "/api"),
-        (credentials_blp, "/api/credentials"),
         (dashboard_blp, "/api/dashboard"),
         (settings_blp, "/api/settings"),
         (portfolio_blp, "/api/portfolio"),
-        (ibkr_blp, "/api/ibkr"),
-        (alpaca_blp, "/api/alpaca"),
         (global_market_blp, "/api/global-market"),
         (community_blp, "/api/community"),
         (fast_analysis_blp, "/api/fast-analysis"),
         (billing_blp, "/api/billing"),
-        (quick_trade_blp, "/api/quick-trade"),
-        (quick_trade_event_radar_blp, "/api/quick-trade"),
     ]
+
+    # MRIP: broker credentials, broker integrations and quick-trade are hidden
+    # (never imported or mounted) unless TRADING_ENABLED=true. See ADR-0001.
+    if trading_enabled():
+        from app.routes.credentials import credentials_blp
+        from app.routes.ibkr import ibkr_blp
+        from app.routes.alpaca import alpaca_blp
+        from app.routes.quick_trade import quick_trade_blp
+        from app.routes.quick_trade_event_radar import quick_trade_event_radar_blp
+
+        registrations += [
+            (credentials_blp, "/api/credentials"),
+            (ibkr_blp, "/api/ibkr"),
+            (alpaca_blp, "/api/alpaca"),
+            (quick_trade_blp, "/api/quick-trade"),
+            (quick_trade_event_radar_blp, "/api/quick-trade"),
+        ]
 
     for blp, prefix in registrations:
         api.register_blueprint(blp, url_prefix=prefix)

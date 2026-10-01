@@ -14,6 +14,7 @@ from __future__ import annotations
 from flask import Blueprint, jsonify
 
 from app.utils.logger import get_logger
+from app.utils.trading_gate import trading_enabled
 
 logger = get_logger(__name__)
 
@@ -41,7 +42,6 @@ def register(app) -> None:
     from . import backtests  # noqa: F401
     from . import portfolio  # noqa: F401
     from . import runtime  # noqa: F401
-    from . import quick_trade  # noqa: F401
     from . import jobs as jobs_module  # noqa: F401
     from . import indicators  # noqa: F401
     from . import research  # noqa: F401
@@ -49,6 +49,10 @@ def register(app) -> None:
     from . import notifications  # noqa: F401
     from . import admin  # noqa: F401
     from . import me_tokens  # noqa: F401
+
+    # MRIP: the agent quick-trade surface is hidden unless TRADING_ENABLED=true (ADR-0001).
+    if trading_enabled():
+        from . import quick_trade  # noqa: F401
 
     app.register_blueprint(agent_v1_bp, url_prefix="/api/agent/v1")
     logger.info("Agent Gateway v1 mounted at /api/agent/v1")

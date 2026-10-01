@@ -10,6 +10,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 os.environ.setdefault("SECRET_KEY", "test-secret-key-for-unit-tests-32-bytes-minimum")
 os.environ.setdefault("ADMIN_USER", "testadmin")
 os.environ.setdefault("ADMIN_PASSWORD", "testpass123")
+# Upstream tests exercise the trading routes; MRIP's default is disabled (ADR-0001).
+os.environ.setdefault("TRADING_ENABLED", "true")
 os.environ.setdefault("TQDM_DISABLE", "1")
 os.environ.setdefault("CACHE_ENABLED", "false")
 os.environ.setdefault("SKIP_STARTUP_HOOKS", "1")
