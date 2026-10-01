@@ -67,6 +67,14 @@ RUN set -eux; \
     apt-get purge -y --auto-remove build-essential python3-dev libffi-dev libssl-dev; \
     rm -rf /var/lib/apt/lists/*
 
+# MRIP: OpenBB gateway dependencies (see requirements-mrip.txt). The first import
+# generates OpenBB's static package, so run it at build time while still root.
+COPY requirements-mrip.txt ./
+RUN pip install --no-cache-dir --prefer-binary --timeout 180 -r requirements-mrip.txt \
+    && pip install --no-cache-dir --no-deps openbb==5.0.0 \
+    && ! (pip check | grep -v '^openbb 5.0.0 requires' | grep .) \
+    && python -c "from openbb import obb"
+
 COPY . .
 
 RUN groupadd --gid 10001 quantdinger \

@@ -1,0 +1,7 @@
+# MRIP additions (ADR-0003). OpenBB v5 core + only the provider extensions we use.
+# The `openbb` meta package pulls devtools/charting/CLI/MCP; it is installed with
+# --no-deps in the Dockerfile so `from openbb import obb` works without that stack.
+openbb-core==2.0.1
+openbb-cboe==2.0.0
+openbb-cftc==2.0.0
+openbb-fred==2.0.0
