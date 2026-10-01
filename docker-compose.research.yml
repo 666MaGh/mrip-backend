@@ -1,0 +1,21 @@
+# MRIP research-only overlay (ADR-0001, ADR-0002).
+# Usage: docker compose -f docker-compose.yml -f docker-compose.research.yml up -d
+# Moves live-trading, Kafka event pipeline and the license-restricted prebuilt
+# frontend into profiles that are never activated for research deployments.
+services:
+  trading-worker:
+    profiles: ["live-trading"]
+  strategy-dispatcher-worker:
+    profiles: ["live-trading"]
+  strategy-evaluator-worker:
+    profiles: ["live-trading"]
+  kafka-audit-worker:
+    profiles: ["live-trading"]
+  kafka-init:
+    profiles: ["live-trading"]
+  kafka:
+    profiles: ["live-trading"]
+  frontend:
+    profiles: ["quantdinger-frontend"]
+  mobile:
+    profiles: ["quantdinger-frontend"]
