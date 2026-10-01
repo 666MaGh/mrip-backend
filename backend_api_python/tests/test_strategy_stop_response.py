@@ -9,8 +9,8 @@ from app.routes import strategy as routes
 
 
 @pytest.mark.parametrize("close_positions,result,http_status,message,persist", [
-    (False, {"success": True, "status": "stopping", "command_id": 7}, 202, "strategyV2.stopQueued", False),
-    (True, {"success": True, "status": "stopping", "command_id": 7}, 202, "strategyV2.stopAndCloseQueued", False),
+    (False, {"success": True, "status": "stopping", "command_id": 7}, 202, "strategyV2.stopQueued", True),
+    (True, {"success": True, "status": "stopping", "command_id": 7}, 202, "strategyV2.stopAndCloseQueued", True),
     (False, {"success": True, "status": "stopped"}, 200, "strategyV2.paused", True),
     (True, {"success": True, "status": "stopped", "close_positions_found": 0}, 200, "strategyV2.stoppedNoPositions", True),
     (True, {"success": True, "status": "stopped", "close_orders_queued": 1}, 200, "strategyV2.stoppedAndCloseQueued", True),

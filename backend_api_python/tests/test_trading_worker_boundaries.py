@@ -75,6 +75,7 @@ class FakeRepository:
         self.completed = []
         self.failed = []
         self.released = []
+        self.revoked = []
         self.active_leases = set()
 
     def complete(self, command_id, result=None):
@@ -85,6 +86,10 @@ class FakeRepository:
 
     def release_strategy_lease(self, *, strategy_id, owner_id):
         self.released.append((strategy_id, owner_id))
+
+    def revoke_strategy_lease(self, *, strategy_id):
+        self.revoked.append(int(strategy_id))
+        return True
 
     @staticmethod
     def has_pending_stop(_strategy_id):
@@ -116,6 +121,7 @@ def test_stop_command_is_executed_by_trading_worker():
 
     assert executor.stopped == [55]
     assert repository.released == [(55, worker.worker_id)]
+    assert repository.revoked == [55]
     assert repository.completed[0][1]["status"] == "stopped"
 
 
@@ -141,6 +147,7 @@ def test_stop_timeout_retains_runtime_lease(monkeypatch, close_positions):
         worker._stop_strategy(55, close_positions=close_positions)
 
     assert repository.released == []
+    assert repository.revoked == []
     assert 55 in executor.running_strategies
 
 
@@ -224,6 +231,7 @@ def test_distributed_stop_and_close_runs_full_stop_policy(monkeypatch):
     assert executor.unregistered_streams == [55]
     assert executor.policy_stops == [(55, True)]
     assert repository.released == [(55, worker.worker_id)]
+    assert repository.revoked == [55]
     assert 55 not in worker._distributed_strategy_ids
 
 

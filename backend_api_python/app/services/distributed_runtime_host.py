@@ -8,6 +8,7 @@ import threading
 from app.services.strategy_command_repository import StrategyCommandRepository
 from app.services.trading_executor import TradingExecutor
 from app.utils.logger import get_logger
+from app.utils.strategy_runtime_logs import append_strategy_log
 from app.workers.lease_heartbeat import LeaseHeartbeat
 
 
@@ -33,6 +34,7 @@ class DistributedRuntimeHost:
         self._lock = threading.RLock()
         self._lost_strategies: set[int] = set()
         self._owned_strategies: set[int] = set()
+        self._start_failures: dict[int, str] = {}
         self._lease_heartbeat = LeaseHeartbeat(
             self.owner_id,
             self.lease_seconds,
@@ -58,18 +60,29 @@ class DistributedRuntimeHost:
                 self._owned_strategies.add(strategy_id)
                 self._lease_heartbeat.watch_strategy(strategy_id)
                 if not self.executor.start_strategy(strategy_id):
+                    detail = str(
+                        getattr(self.executor, "_last_start_failure", "")
+                        or "strategyRuntime.startFailed"
+                    )
+                    self._record_start_failure(strategy_id, detail)
                     self._release_runtime(strategy_id)
                     return False
                 started = True
         if started:
-            ready, _hint = self.executor.wait_strategy_running(
-                    strategy_id,
-                    timeout=min(max(1.0, timeout), 30.0),
-                )
+            ready, hint = self.executor.wait_strategy_running(
+                strategy_id,
+                timeout=min(max(1.0, timeout), 30.0),
+            )
             if not ready:
+                self._record_start_failure(
+                    strategy_id,
+                    str(hint or "strategyRuntime.startFailed"),
+                )
                 self.executor.stop_strategy(strategy_id, persist_status=False)
                 self._release_runtime(strategy_id)
                 return False
+        with self._lock:
+            self._start_failures.pop(strategy_id, None)
         if not self._runtime_valid(strategy_id):
             return False
         return self.executor.trigger_bar_evaluation(
@@ -77,6 +90,14 @@ class DistributedRuntimeHost:
             event,
             timeout=timeout,
         )
+
+    def _record_start_failure(self, strategy_id: int, detail: str) -> None:
+        strategy_id = int(strategy_id)
+        with self._lock:
+            if self._start_failures.get(strategy_id) == detail:
+                return
+            self._start_failures[strategy_id] = detail
+        append_strategy_log(strategy_id, "error", detail)
 
     def reconcile(self, running_strategy_ids: set[int] | None = None) -> None:
         local_ids = set(self.local_strategy_ids())

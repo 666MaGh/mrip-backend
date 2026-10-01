@@ -268,7 +268,7 @@ def stop_strategy(strategy_id: int):
     )
     result.setdefault("close_requested", close_positions)
     status = str(result.get("status") or "")
-    if status == "stopped":
+    if status == "stopped" or (result.get("success") and status == "stopping"):
         get_strategy_service().update_strategy_status(strategy_id, "stopped", user_id=int(g.user_id))
     data = {"id": strategy_id, **result}
     if not result.get("success"):

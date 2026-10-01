@@ -103,6 +103,37 @@ def test_releasing_runtime_lease_preserves_fencing_row(monkeypatch):
     assert params == (11, "worker-a")
 
 
+def test_revoking_runtime_lease_invalidates_any_owner(monkeypatch):
+    connection = FakeConnection(None)
+    connection.commit = lambda: None
+    monkeypatch.setattr(repository_module, "get_db_connection", lambda: connection)
+
+    assert StrategyCommandRepository().revoke_strategy_lease(strategy_id=11) is True
+
+    sql, params = connection.cursor_value.executions[0]
+    assert "UPDATE qd_strategy_runtime_leases" in sql
+    assert "fencing_token = fencing_token + 1" in sql
+    assert "owner_id = ''" in sql
+    assert "owner_id = %s" not in sql
+    assert params == (11,)
+
+
+def test_stop_command_can_be_claimed_across_runtime_owners(monkeypatch):
+    connection = FakeConnection(None)
+    connection.commit = lambda: None
+    connection.rollback = lambda: None
+    monkeypatch.setattr(repository_module, "get_db_connection", lambda: connection)
+
+    assert StrategyCommandRepository().claim_next(
+        owner_id="worker-a",
+        lease_seconds=30,
+        max_attempts=3,
+    ) is None
+
+    sql, _params = connection.cursor_value.executions[0]
+    assert "command.command_type IN ('start', 'stop', 'reconcile')" in sql
+
+
 def test_releasing_shard_lease_preserves_fencing_row(monkeypatch):
     connection = FakeConnection(None)
     connection.commit = lambda: None
