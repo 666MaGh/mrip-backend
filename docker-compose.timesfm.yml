@@ -1,0 +1,23 @@
+# MRIP overlay: TimesFM 2.5 forecasting service (Apache-2.0 weights only). Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.research.yml -f docker-compose.timesfm.yml up -d --build
+# The backend reaches it at http://timesfm:8000 (POST /v1/forecast, GET /health).
+services:
+  timesfm:
+    build: ./ops/timesfm
+    container_name: mrip-timesfm
+    restart: unless-stopped
+    environment:
+      TIMESFM_API_KEY: ${TIMESFM_API_KEY:-}
+      TIMESFM_MAX_CONTEXT: ${TIMESFM_MAX_CONTEXT:-1024}
+      TIMESFM_PRELOAD: ${TIMESFM_PRELOAD:-0}
+    volumes:
+      - timesfm_hf:/hf
+    networks:
+      - quantdinger-network
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5).status == 200 else 1)"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+volumes:
+  timesfm_hf:
