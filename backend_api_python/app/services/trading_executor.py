@@ -965,11 +965,13 @@ class TradingExecutor:
                 1.0,
                 min(60.0, configured_state_write_interval),
             )
+            position_mark_interval = state_write_interval
             price_stale_after = max(
                 risk_tick * 3.0,
                 min(30.0, float(trading_config.get("price_stale_after_seconds") or 10.0)),
             )
             next_signal_poll = 0.0
+            next_position_mark_at = 0.0
             last_signal_bar_token: int | None = None
             last_processed_frame_timestamp: pd.Timestamp | None = None
             initial_frames_pending = True
@@ -1031,6 +1033,16 @@ class TradingExecutor:
                     elif stale_price_logged:
                         append_strategy_log(strategy_id, "info", "Live price feed recovered")
                         stale_price_logged = False
+                    if (
+                        execution_mode == "live"
+                        and active_prices
+                        and positions
+                        and price_clock >= next_position_mark_at
+                    ):
+                        from app.services.live_trading.records import mark_live_positions
+
+                        mark_live_positions(strategy_id, active_prices)
+                        next_position_mark_at = price_clock + position_mark_interval
                     if execution_mode == "signal" and active_prices:
                         from app.services.virtual_trading import (
                             mark_virtual_positions,
@@ -1968,6 +1980,15 @@ class TradingExecutor:
         if not ok:
             raise RuntimeError(f"grid.startupFailed:{message}")
         tick_seconds = max(0.25, min(5.0, float(trading_config.get("risk_tick_seconds") or 1)))
+        try:
+            position_mark_interval = float(
+                trading_config.get("state_write_interval_seconds")
+                or os.getenv("STRATEGY_STATE_WRITE_INTERVAL_SEC", "5")
+            )
+        except (TypeError, ValueError):
+            position_mark_interval = 5.0
+        position_mark_interval = max(1.0, min(60.0, position_mark_interval))
+        next_position_mark_at = 0.0
         last_prices: dict[str, float] = {}
         stale_logged = False
         grid_exit_reason = "grid strategy stopped"
@@ -1995,6 +2016,11 @@ class TradingExecutor:
                 current_price = float(prices.get(key) or 0)
                 if current_price > 0:
                     last_prices[key] = current_price
+                    if cycle_started >= next_position_mark_at:
+                        from app.services.live_trading.records import mark_live_positions
+
+                        mark_live_positions(strategy_id, {key: current_price})
+                        next_position_mark_at = cycle_started + position_mark_interval
                     runner.tick(current_price, high=current_price, low=current_price, bars_df=frame)
                     runner.checkpoint()
                     if stale_logged:

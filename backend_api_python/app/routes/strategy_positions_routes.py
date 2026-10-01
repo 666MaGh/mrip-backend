@@ -83,12 +83,7 @@ def get_positions():
                 continue
             entry = float(r.get("entry_price") or 0.0)
             current_price = float(r.get("current_price") or entry or 0.0)
-            stored_pnl = r.get("unrealized_pnl")
-            pnl = (
-                float(stored_pnl)
-                if stored_pnl is not None
-                else calc_unrealized_pnl(side, entry, current_price, size)
-            )
+            pnl = calc_unrealized_pnl(side, entry, current_price, size)
             pct = calc_pnl_percent(
                 entry,
                 size,
