@@ -27,6 +27,19 @@ def _normalize_trade_row_for_api(trade: dict, *, leverage: float = 1.0, market_t
     except Exception:  # pragma: no cover
         Decimal = ()  # type: ignore
     out = dict(trade)
+    commission_ccy = str(out.get("commission_ccy") or "").strip().upper()
+    exchange_id = str(out.get("exchange_id") or "").strip().lower()
+    if (
+        out.get("commission_quote") is None
+        and commission_ccy in {"", "UNKNOWN"}
+        and (commission_ccy != "UNKNOWN" or exchange_id == "bitget")
+    ):
+        from app.services.live_trading.fee_quote import STABLE_QUOTES, symbol_currencies
+
+        _, quote_currency = symbol_currencies(str(out.get("symbol") or ""))
+        if quote_currency in STABLE_QUOTES and out.get("commission") is not None:
+            out["commission_quote"] = out.get("commission")
+            out["commission_ccy"] = quote_currency
     for k in (
         "price",
         "amount",
