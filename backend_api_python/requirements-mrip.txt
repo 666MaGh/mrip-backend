@@ -5,3 +5,6 @@ openbb-core==2.0.1
 openbb-cboe==2.0.0
 openbb-cftc==2.0.0
 openbb-fred==2.0.0
+# Statistical Validation Engine (work 006)
+scipy==1.18.1
+statsmodels==0.15.0

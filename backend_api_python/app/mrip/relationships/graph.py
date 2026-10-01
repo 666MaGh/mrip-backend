@@ -223,6 +223,24 @@ class RelationshipGraph:
                 cur.close()
             conn.commit()
 
+    def find_active_edge(self, src: NodeKey, dst: NodeKey, relation_type: RelationType) -> Edge | None:
+        """The current (non-retired) edge for this relationship, if any."""
+        with self._connect() as conn:
+            cur = conn.cursor()
+            try:
+                src_node, dst_node = self._find_node(cur, src), self._find_node(cur, dst)
+                if src_node is None or dst_node is None:
+                    return None
+                cur.execute(
+                    "SELECT " + _EDGE_COLUMNS + " FROM mrip_rel_edges "
+                    "WHERE src_id = %s AND dst_id = %s AND relation_type = %s AND retired_version IS NULL",
+                    (src_node.id, dst_node.id, relation_type.value),
+                )
+                row = cur.fetchone()
+            finally:
+                cur.close()
+        return _edge(row) if row else None
+
     # -- traversal --------------------------------------------------------
 
     def traverse(
