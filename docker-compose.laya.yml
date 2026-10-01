@@ -1,0 +1,21 @@
+# MRIP overlay: LAYA decision service. Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.research.yml -f docker-compose.laya.yml up -d --build
+# The backend reaches it at http://laya:8000 (set LAYA_BASE_URL in .env).
+services:
+  laya:
+    build: ./ops/laya
+    container_name: mrip-laya
+    restart: unless-stopped
+    environment:
+      LAYA_API_KEY: ${LAYA_API_KEY:-}
+    volumes:
+      - laya_hf:/hf
+    networks:
+      - quantdinger-network
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5).status == 200 else 1)"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+volumes:
+  laya_hf:
