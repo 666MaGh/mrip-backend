@@ -56,6 +56,10 @@ def test_bar_event_bypasses_poll_throttle_at_boundary():
 def test_flat_crypto_bar_runtime_uses_idle_wait(monkeypatch):
     monkeypatch.setenv("BAR_IDLE_SCHEDULER_ENABLED", "1")
     monkeypatch.setenv("BAR_IDLE_WAKE_INTERVAL_SEC", "10")
+    monkeypatch.setattr(
+        "app.services.trading_executor.seconds_until_next_completed_bar",
+        lambda _frequency: 30.0,
+    )
 
     wait_seconds = _runtime_wait_seconds(
         risk_tick=1.0,
@@ -69,8 +73,7 @@ def test_flat_crypto_bar_runtime_uses_idle_wait(monkeypatch):
         market_ready=True,
     )
 
-    assert wait_seconds > 1.0
-    assert wait_seconds <= 10.0
+    assert wait_seconds == 10.0
 
 
 def test_active_runtime_keeps_risk_tick(monkeypatch):

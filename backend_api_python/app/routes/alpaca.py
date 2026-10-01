@@ -421,7 +421,7 @@ def place_order():
     Request body:
         symbol (required): Ticker, e.g. AAPL
         side (required): buy or sell
-        quantity or notional (required): Share quantity or USD amount
+        quantity or notional (required): Share quantity or USD amount; mutually exclusive
         marketType (optional): USStock or crypto (default USStock)
         orderType (optional): market or limit (default market)
         price (required for limit): Limit price
