@@ -5212,6 +5212,50 @@ paths:
       schema:
         type: integer
         minimum: 0
+  /api/strategies/{strategy_id}/commands/{command_id}:
+    get:
+      responses:
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HumanErrorEnvelope'
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HumanSuccessEnvelope'
+      tags:
+      - Strategy
+      operationId: getApiStrategiesStrategyIdCommandsCommandId
+      summary: Get Api Strategies Strategy Id Commands Command Id
+      parameters:
+      - name: strategy_id
+        in: path
+        required: true
+        schema:
+          type: integer
+      - name: command_id
+        in: path
+        required: true
+        schema:
+          type: integer
+      x-visibility: internal
+    parameters:
+    - in: path
+      name: strategy_id
+      required: true
+      schema:
+        type: integer
+        minimum: 0
+    - in: path
+      name: command_id
+      required: true
+      schema:
+        type: integer
+        minimum: 0
   /api/strategies/exchange/test:
     post:
       responses:

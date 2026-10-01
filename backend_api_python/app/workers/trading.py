@@ -281,10 +281,8 @@ class TradingWorker:
             unregister_streams = getattr(self.executor, "unregister_market_streams", None)
             if callable(unregister_streams):
                 unregister_streams(strategy_id)
-            was_distributed = strategy_id in self._distributed_strategy_ids
             self._distributed_strategy_ids.discard(strategy_id)
-            if was_distributed and strategy_id not in self._local_strategy_ids():
-                return {"strategy_id": strategy_id, "status": "stopped"}
+            self._remote_strategy_ids.discard(strategy_id)
         if close_positions:
             result = self.executor.stop_strategy_with_policy(
                 strategy_id,

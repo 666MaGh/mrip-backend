@@ -106,6 +106,22 @@ def _error(message: str, status: int = 400, data: Any = None):
     return jsonify({"code": 0, "msg": message, "data": data}), status
 
 
+def _stop_result_message(result: dict[str, Any]) -> str:
+    close_positions = bool(result.get("close_requested"))
+    status = str(result.get("status") or "")
+    if status == "stopping":
+        return "strategyV2.stopAndCloseQueued" if close_positions else "strategyV2.stopQueued"
+    if not close_positions:
+        return "strategyV2.paused"
+    if result.get("close_positions_found") == 0:
+        return "strategyV2.stoppedNoPositions"
+    completed = int(result.get("close_orders_completed") or 0)
+    queued = int(result.get("close_orders_queued") or 0)
+    if completed > 0 and completed == queued:
+        return "strategyV2.stoppedAndVirtualCloseCompleted"
+    return "strategyV2.stoppedAndCloseQueued"
+
+
 def _strategy(strategy_id: int):
     return get_strategy_service().get_strategy(int(strategy_id), user_id=int(g.user_id))
 
@@ -250,6 +266,7 @@ def stop_strategy(strategy_id: int):
         strategy_id,
         close_positions=close_positions,
     )
+    result.setdefault("close_requested", close_positions)
     status = str(result.get("status") or "")
     if status == "stopped":
         get_strategy_service().update_strategy_status(strategy_id, "stopped", user_id=int(g.user_id))
@@ -258,14 +275,29 @@ def stop_strategy(strategy_id: int):
         message = "strategyV2.stopClosePartialFailure" if close_positions and status == "stopped" else "strategyV2.stopFailed"
         return _error(message, 409, data=data)
     if status == "stopping":
-        return _ok(data, "strategyV2.stopQueued"), 202
-    completed = int(result.get("close_orders_completed") or 0)
-    queued = int(result.get("close_orders_queued") or 0)
-    if close_positions and completed > 0 and completed == queued:
-        message = "strategyV2.stoppedAndVirtualCloseCompleted"
-    else:
-        message = "strategyV2.stoppedAndCloseQueued" if close_positions else "strategyV2.paused"
-    return _ok(data, message)
+        return _ok(data, _stop_result_message(result)), 202
+    return _ok(data, _stop_result_message(result))
+
+
+@strategy_blp.route("/strategies/<int:strategy_id>/commands/<int:command_id>", methods=["GET"])
+@login_required
+def strategy_command_status(strategy_id: int, command_id: int):
+    if not _strategy(strategy_id):
+        return _error("strategyV2.strategyNotFound", 404)
+    executor = get_trading_executor()
+    get_status = getattr(executor, "get_command_status", None)
+    if not callable(get_status):
+        return _error("strategyV2.commandStatusUnavailable", 503)
+    result = get_status(strategy_id, command_id)
+    if result is None:
+        return _error("strategyV2.commandNotFound", 404)
+    status = str(result.get("status") or "")
+    if status == "stopped":
+        get_strategy_service().update_strategy_status(strategy_id, "stopped", user_id=int(g.user_id))
+    if not result.get("success"):
+        message = "strategyV2.stopClosePartialFailure" if status == "stopped" else "strategyV2.stopFailed"
+        return _error(message, 409, data=result)
+    return _ok(result, _stop_result_message(result))
 
 
 @strategy_blp.route("/strategies/exchange/test", methods=["POST"])

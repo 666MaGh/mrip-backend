@@ -522,6 +522,7 @@ class TradingExecutor:
             "success": bool(stopped),
             "status": "stopped" if stopped else "running",
             "close_requested": bool(close_positions),
+            "close_positions_found": len(positions),
             "close_orders_queued": 0,
             "close_errors": [],
         }
@@ -587,6 +588,7 @@ class TradingExecutor:
             "success": bool(stopped),
             "status": "stopped" if stopped else "running",
             "close_requested": True,
+            "close_positions_found": 0,
             "close_orders_queued": 0,
             "close_orders_completed": 0,
             "close_errors": [],
@@ -608,6 +610,7 @@ class TradingExecutor:
             )
             positions = [dict(row) for row in (cur.fetchall() or [])]
             cur.close()
+        result["close_positions_found"] = len(positions)
         if not positions:
             return result
 

@@ -23,6 +23,8 @@ class FakeExecutor:
         self.lock = __import__("threading").Lock()
         self.stopped = []
         self.registered_streams = []
+        self.unregistered_streams = []
+        self.policy_stops = []
         self.stop_result = stop_result
         self.handoffs = []
 
@@ -43,6 +45,9 @@ class FakeExecutor:
     def register_market_streams(self, strategy_id, streams):
         self.registered_streams.append((int(strategy_id), set(streams)))
 
+    def unregister_market_streams(self, strategy_id):
+        self.unregistered_streams.append(int(strategy_id))
+
     def stop_strategy(self, strategy_id, persist_status=False, preserve_run=False):
         del persist_status
         self.stopped.append(int(strategy_id))
@@ -53,11 +58,14 @@ class FakeExecutor:
         return self.stop_result
 
     def stop_strategy_with_policy(self, strategy_id, *, close_positions):
-        del close_positions
+        self.policy_stops.append((int(strategy_id), bool(close_positions)))
         stopped = self.stop_strategy(strategy_id)
         return {
             "strategy_id": strategy_id,
             "success": stopped,
+            "status": "stopped" if stopped else "running",
+            "close_requested": bool(close_positions),
+            "close_positions_found": 0,
             "message": "runtime stop timeout" if not stopped else "",
         }
 
@@ -189,6 +197,34 @@ def test_distributed_bar_start_registers_routes_without_local_runtime(monkeypatc
     assert result["runtime_owner"] == "strategy-evaluator-group"
     assert executor.registered_streams == [(55, {stream})]
     assert executor.running_strategies == {}
+
+
+def test_distributed_stop_and_close_runs_full_stop_policy(monkeypatch):
+    from app.services.strategy_event_subscriptions import (
+        StrategyEventSubscriptionRepository,
+    )
+
+    removed = []
+    monkeypatch.setenv("STRATEGY_DISTRIBUTED_BAR_ENABLED", "true")
+    monkeypatch.setattr(
+        StrategyEventSubscriptionRepository,
+        "remove_strategy",
+        lambda _self, strategy_id: removed.append(int(strategy_id)),
+    )
+    repository = FakeRepository()
+    executor = FakeExecutor()
+    worker = TradingWorker(executor, repository)
+    worker._distributed_strategy_ids.add(55)
+
+    result = worker._stop_strategy(55, close_positions=True)
+
+    assert result["status"] == "stopped"
+    assert result["close_positions_found"] == 0
+    assert removed == [55]
+    assert executor.unregistered_streams == [55]
+    assert executor.policy_stops == [(55, True)]
+    assert repository.released == [(55, worker.worker_id)]
+    assert 55 not in worker._distributed_strategy_ids
 
 
 def test_distributed_restore_does_not_reregister_an_active_strategy(monkeypatch):

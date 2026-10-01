@@ -599,6 +599,11 @@ class _StopCursor:
         return None
 
 
+class _EmptyStopCursor(_StopCursor):
+    def fetchall(self):
+        return []
+
+
 def test_stop_policy_distinguishes_pause_only_from_pause_and_close(monkeypatch):
     executor = TradingExecutor()
     strategy = _strategy(40, "long")
@@ -623,6 +628,26 @@ def test_stop_policy_distinguishes_pause_only_from_pause_and_close(monkeypatch):
         ("BTC/USDT", "close_long", 1.0),
         ("ETH/USDT", "close_short", 2.0),
     ]
+
+
+def test_stop_and_close_without_positions_completes_without_an_order(monkeypatch):
+    import app.services.trading_executor as trading_executor_module
+
+    executor = TradingExecutor()
+    strategy = _strategy(40, "long")
+    monkeypatch.setattr(executor, "_load_strategy", lambda _sid: strategy)
+    monkeypatch.setattr(executor, "stop_strategy", lambda _sid: True)
+    monkeypatch.setattr(trading_executor_module, "get_db_connection", lambda: _Db(_EmptyStopCursor()))
+    submitted = []
+    executor.order_gateway.submit = lambda request: submitted.append(request) or len(submitted)
+
+    result = executor.stop_strategy_with_policy(40, close_positions=True)
+
+    assert result["success"] is True
+    assert result["status"] == "stopped"
+    assert result["close_positions_found"] == 0
+    assert result["close_orders_queued"] == 0
+    assert submitted == []
 
 
 def test_signal_stop_and_close_settles_virtual_positions_without_live_orders(monkeypatch):
