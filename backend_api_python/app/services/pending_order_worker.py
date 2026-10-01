@@ -1657,7 +1657,7 @@ class PendingOrderWorker(
 
     def _execute_live_order(self, *, order_id: int, order_row: Dict[str, Any], payload: Dict[str, Any]) -> None:
         """
-        Execute a pending order using direct exchange REST clients (no ccxt).
+        Execute a pending order using direct exchange REST clients.
         """
         _console_print = console_print
 

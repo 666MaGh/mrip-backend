@@ -180,9 +180,9 @@ def load_addon_config() -> Dict[str, Any]:
         ('COINGLASS_API_KEY', 'coinglass.api_key', 'string'),
         ('CRYPTOQUANT_API_KEY', 'cryptoquant.api_key', 'string'),
 
-        # CCXT
-        ('CCXT_DEFAULT_EXCHANGE', 'ccxt.default_exchange', 'string'),
-        ('CCXT_TIMEOUT', 'ccxt.timeout', 'int'),
+        # Native cryptocurrency public APIs
+        ('CRYPTO_PUBLIC_DEFAULT_EXCHANGE', 'crypto_public.default_exchange', 'string'),
+        ('CRYPTO_PUBLIC_TIMEOUT', 'crypto_public.timeout', 'int'),
 
         # Other sources
         ('YFINANCE_TIMEOUT', 'yfinance.timeout', 'int'),

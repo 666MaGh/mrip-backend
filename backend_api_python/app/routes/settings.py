@@ -911,12 +911,10 @@ CONFIG_SCHEMA = {
                 'description': 'Add broad global-event headlines to each asset report. Keep disabled unless this background context is explicitly needed.'
             },
             {
-                'key': 'CCXT_DEFAULT_EXCHANGE',
+                'key': 'CRYPTO_PUBLIC_DEFAULT_EXCHANGE',
                 'label': 'Default Crypto Exchange',
                 'type': 'text',
                 'default': 'binance',
-                'link': 'https://github.com/ccxt/ccxt#supported-cryptocurrency-exchange-markets',
-                'link_text': 'settings.link.supportedExchanges',
                 'description': 'Default crypto market-data exchange: binance, bitget, bybit, okx, gate, or htx'
             },
             {
@@ -2117,11 +2115,11 @@ def get_settings_schema():
 @login_required
 def get_public_config():
     """Return non-sensitive config values needed by frontend widgets."""
-    from app.config.data_sources import CCXTConfig
+    from app.config.data_sources import CryptoPublicConfig
     return jsonify({
         'code': 1,
         'data': {
-            'ccxt_default_exchange': (CCXTConfig.DEFAULT_EXCHANGE or 'binance').lower(),
+            'crypto_public_default_exchange': (CryptoPublicConfig.DEFAULT_EXCHANGE or 'binance').lower(),
         }
     })
 

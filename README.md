@@ -802,7 +802,6 @@ the maintainers and contributors of projects including:
 - [Redis](https://redis.io/)
 - [Pandas](https://pandas.pydata.org/)
 - [NumPy](https://numpy.org/)
-- [CCXT](https://github.com/ccxt/ccxt)
 - [yfinance](https://github.com/ranaroussi/yfinance)
 - [AkShare](https://github.com/akfamily/akshare)
 - [Vue.js](https://vuejs.org/)

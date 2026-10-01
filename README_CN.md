@@ -736,7 +736,6 @@ QuantDinger 建立在强大的开源生态之上。特别感谢以下项目的�
 - [Redis](https://redis.io/)
 - [Pandas](https://pandas.pydata.org/)
 - [NumPy](https://numpy.org/)
-- [CCXT](https://github.com/ccxt/ccxt)
 - [yfinance](https://github.com/ranaroussi/yfinance)
 - [AkShare](https://github.com/akfamily/akshare)
 - [Vue.js](https://vuejs.org/)

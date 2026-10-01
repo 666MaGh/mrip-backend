@@ -44,9 +44,9 @@ MARKET_MODULES: Dict[str, MarketModule] = {
         features=["research", "backtest", "paper", "live"],
         data_requirements=[
             DataRequirement(
-                key="ccxt",
-                label="CCXT exchange",
-                setting_keys=["CCXT_DEFAULT_EXCHANGE"],
+                key="native_crypto_public",
+                label="Native exchange public API",
+                setting_keys=["CRYPTO_PUBLIC_DEFAULT_EXCHANGE"],
                 required=True,
                 purpose="quotes and OHLCV",
             ),

@@ -44,7 +44,7 @@ quantdinger/
 │   ├── app/
 │   │   ├── config/              # Settings, API keys, DB config
 │   │   ├── data_providers/      # Market data fetchers (crypto, forex, …)
-│   │   ├── data_sources/        # Exchange/broker adapters (CCXT, yfinance, …)
+│   │   ├── data_sources/        # Native exchange and broker adapters
 │   │   ├── routes/              # Flask Blueprints (REST endpoints)
 │   │   ├── services/            # Business logic (strategy, trading, AI, …)
 │   │   └── utils/               # DB helpers, auth, caching, logger

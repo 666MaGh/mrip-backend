@@ -117,7 +117,7 @@ def load_strategy_configs(strategy_id: int) -> Dict[str, Any]:
 
     # market_category MUST come from the strategy row; if it's empty (legacy or
     # corrupt rows), infer from exchange_id rather than silently defaulting to
-    # Crypto — that is what historically caused TSLA to be queried via CCXT.
+    # Crypto; otherwise an equity symbol could be sent to a crypto venue.
     raw_mc = (row.get("market_category") or "").strip()
     if raw_mc:
         market_category = raw_mc
