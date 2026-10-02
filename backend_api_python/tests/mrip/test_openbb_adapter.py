@@ -152,6 +152,18 @@ def test_price_history_and_vix():
     assert adapter.vix_history().symbol == "VIX"
 
 
+def test_index_history_passes_the_symbol_and_vix_is_an_alias():
+    seen = []
+
+    def historical(sym, start_date=None, end_date=None):
+        seen.append(sym)
+        return response([RowModel(date=date(2026, 9, 30), open=1.0, high=2.0, low=0.5, close=1.5, volume=None)])
+
+    adapter = make_adapter(cboe=SimpleNamespace(index=SimpleNamespace(historical=historical)))
+    assert adapter.index_history("TNX").symbol == "TNX"
+    assert adapter.vix_history().symbol == "VIX" and seen == ["TNX", "VIX"]
+
+
 def test_price_history_rejects_unsupported_interval():
     with pytest.raises(ValueError):
         make_adapter().price_history("SPY", interval="1m")

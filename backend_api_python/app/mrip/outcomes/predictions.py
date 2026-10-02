@@ -19,7 +19,9 @@ def horizon_kind_for(horizon_days: int) -> HorizonKind:
     return kind
 
 
-def forecast_prediction(result: ForecastResult, *, benchmark: str | None = "SPY") -> NewPrediction:
+def forecast_prediction(
+    result: ForecastResult, *, benchmark: str | None = "SPY", market_regime: Mapping[str, Any] | None = None
+) -> NewPrediction:
     """A forecast made after the close of ``as_of`` (23:00 UTC that day); entry is that day's close."""
     kind = horizon_kind_for(result.horizon_days)
     quantiles = {str(q): v for q, v in result.return_quantiles.items()}
@@ -37,6 +39,7 @@ def forecast_prediction(result: ForecastResult, *, benchmark: str | None = "SPY"
             "last_price": result.last_price,
             "n_obs": result.n_obs,
             "warnings": list(result.warnings),
+            **({"market_regime": dict(market_regime)} if market_regime else {}),
         },
     )
 
@@ -55,6 +58,7 @@ def options_event_predictions(
     expiry: date | None = None,
     benchmark: str | None = "SPY",
     lineage: Mapping[str, Any] | None = None,
+    market_regime: Mapping[str, Any] | None = None,
 ) -> list[NewPrediction]:
     """One prediction per horizon from a modeled options analysis (made at the snapshot time, entry = spot)."""
     spot = analysis.observed.underlying_price
@@ -80,6 +84,7 @@ def options_event_predictions(
         "atm_iv": _atm_iv_near_30d(analysis),
         "oi_status": analysis.data_quality.oi_status,
         "modeled": True,
+        **({"market_regime": dict(market_regime)} if market_regime else {}),
     }
     return [
         NewPrediction(

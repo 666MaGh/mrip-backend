@@ -29,15 +29,22 @@ AttrsFn = Callable[[Prediction], Mapping[str, str]]
 
 
 def prediction_attrs(p: Prediction) -> dict[str, str]:
-    return {"horizon_kind": p.horizon_kind.value, "model_version": p.model_version, "subject": p.subject}
+    attrs = {"horizon_kind": p.horizon_kind.value, "model_version": p.model_version, "subject": p.subject}
+    regime = (p.payload.get("market_regime") or {}).get("regime")
+    if regime:
+        attrs["vix_regime"] = str(regime)  # available as a segment dimension when logged with the prediction
+    return attrs
 
 
-def result_attrs(result: ForecastResult) -> dict[str, str]:
-    return {
+def result_attrs(result: ForecastResult, vix_regime: str | None = None) -> dict[str, str]:
+    attrs = {
         "horizon_kind": horizon_kind_for(result.horizon_days).value,
         "model_version": result.provider_version,
         "subject": result.symbol,
     }
+    if vix_regime:
+        attrs["vix_regime"] = vix_regime
+    return attrs
 
 
 @dataclass(frozen=True, slots=True)

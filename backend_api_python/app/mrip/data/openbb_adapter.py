@@ -147,17 +147,21 @@ class OpenBBAdapter:
             provenance=self._provenance(response, "cboe", "cboe.equity.historical"),
         )
 
-    def vix_history(self, start: date | None = None, end: date | None = None) -> PriceSeries:
+    def index_history(self, symbol: str, start: date | None = None, end: date | None = None) -> PriceSeries:
+        """Daily history of a CBOE-published index (e.g. VIX, VIX3M, SPX, TNX)."""
         response = self._call(
             "cboe.index.historical",
-            lambda: self.obb.cboe.index.historical("VIX", start_date=start, end_date=end),
+            lambda: self.obb.cboe.index.historical(symbol, start_date=start, end_date=end),
         )
         return PriceSeries(
-            symbol="VIX",
+            symbol=symbol,
             interval="1d",
-            bars=self._bars(response, "VIX"),
+            bars=self._bars(response, symbol),
             provenance=self._provenance(response, "cboe", "cboe.index.historical"),
         )
+
+    def vix_history(self, start: date | None = None, end: date | None = None) -> PriceSeries:
+        return self.index_history("VIX", start, end)
 
     def options_chain(self, symbol: str) -> OptionsChainSnapshot:
         response = self._call("cboe.options.chains", lambda: self.obb.cboe.options.chains(symbol))
