@@ -12,11 +12,16 @@ _FORECAST_HORIZONS = {5: HorizonKind.W1, 21: HorizonKind.M1, 63: HorizonKind.M3,
 _DEFAULT_OPTION_HORIZONS = (HorizonKind.EOD, HorizonKind.NEXT_SESSION, HorizonKind.W1)
 
 
+def horizon_kind_for(horizon_days: int) -> HorizonKind:
+    kind = _FORECAST_HORIZONS.get(horizon_days)
+    if kind is None:
+        raise ValueError(f"horizon_days {horizon_days} is not a resolvable horizon {sorted(_FORECAST_HORIZONS)}")
+    return kind
+
+
 def forecast_prediction(result: ForecastResult, *, benchmark: str | None = "SPY") -> NewPrediction:
     """A forecast made after the close of ``as_of`` (23:00 UTC that day); entry is that day's close."""
-    kind = _FORECAST_HORIZONS.get(result.horizon_days)
-    if kind is None:
-        raise ValueError(f"horizon_days {result.horizon_days} is not a resolvable horizon {sorted(_FORECAST_HORIZONS)}")
+    kind = horizon_kind_for(result.horizon_days)
     quantiles = {str(q): v for q, v in result.return_quantiles.items()}
     s = result.scenarios
     return NewPrediction(
