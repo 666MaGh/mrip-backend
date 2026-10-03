@@ -150,6 +150,24 @@ class RelationshipGraph:
             finally:
                 cur.close()
 
+    def list_nodes_in_universe(self, universe: str) -> list[Node]:
+        """Return all SECURITY nodes that belong to the given universe.
+
+        A SECURITY node belongs to a universe if its attributes contain a
+        "universes" key (a JSON list) that includes the universe name.
+        """
+        with self._connect() as conn:
+            cur = conn.cursor()
+            try:
+                cur.execute(
+                    "SELECT id, node_type, node_key, name, attributes FROM mrip_rel_nodes "
+                    "WHERE node_type = %s AND attributes -> 'universes' @> %s::jsonb",
+                    (NodeType.SECURITY.value, json.dumps([universe])),
+                )
+                return [_node(row) for row in cur.fetchall()]
+            finally:
+                cur.close()
+
     # -- edges ------------------------------------------------------------
 
     def add_edge(

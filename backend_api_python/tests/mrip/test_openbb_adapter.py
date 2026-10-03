@@ -44,7 +44,7 @@ def response(results, provider="cboe", extra=None):
 
 
 def make_adapter(**namespaces):
-    return OpenBBAdapter(obb=SimpleNamespace(**namespaces), clock=lambda: NOW)
+    return OpenBBAdapter(obb=SimpleNamespace(**namespaces), clock=lambda: NOW, sleep=lambda s: None)
 
 
 def chain_response(records=False):
@@ -129,7 +129,7 @@ def test_provider_failure_becomes_data_unavailable_with_cause():
         raise RuntimeError("upstream 503")
 
     adapter = make_adapter(cboe=SimpleNamespace(options=SimpleNamespace(chains=boom)))
-    with pytest.raises(DataUnavailable, match="cboe.options.chains failed: upstream 503") as err:
+    with pytest.raises(DataUnavailable, match="cboe.options.chains failed after 4 attempt\\(s\\): upstream 503") as err:
         adapter.options_chain("SPY")
     assert isinstance(err.value.__cause__, RuntimeError)
 
@@ -223,3 +223,31 @@ def test_missing_openbb_install_is_reported_as_data_unavailable(monkeypatch):
     monkeypatch.setattr(builtins, "__import__", fake_import)
     with pytest.raises(DataUnavailable, match="not installed"):
         OpenBBAdapter(clock=lambda: NOW).vix_history()
+
+
+def test_transient_provider_failures_are_retried_with_exponential_backoff():
+    calls, sleeps = [], []
+
+    def flaky(symbol):
+        calls.append(symbol)
+        if len(calls) < 3:
+            raise KeyError("symbol")  # the intermittent CBOE failure seen live
+        return chain_response(True)
+
+    adapter = OpenBBAdapter(
+        obb=SimpleNamespace(cboe=SimpleNamespace(options=SimpleNamespace(chains=flaky))),
+        clock=lambda: NOW, backoff_seconds=0.5, sleep=sleeps.append,
+    )
+    assert adapter.options_chain("SPY").underlying == "SPY"
+    assert len(calls) == 3 and sleeps == [0.5, 1.0]
+
+
+def test_retries_can_be_disabled_and_exhaustion_reports_the_attempt_count():
+    def boom(symbol):
+        raise RuntimeError("down")
+
+    adapter = OpenBBAdapter(
+        obb=SimpleNamespace(cboe=SimpleNamespace(options=SimpleNamespace(chains=boom))), retries=0, sleep=lambda s: None
+    )
+    with pytest.raises(DataUnavailable, match="after 1 attempt"):
+        adapter.options_chain("SPY")

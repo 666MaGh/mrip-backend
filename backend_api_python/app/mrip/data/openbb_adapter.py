@@ -12,6 +12,7 @@ Provider choices and their verified behaviour (2026-10-01, OpenBB 5.0.0):
 """
 from __future__ import annotations
 
+import time
 from datetime import date, datetime, timezone
 from typing import Any, Callable, Iterable
 
@@ -119,9 +120,17 @@ class OpenBBAdapter:
         self,
         obb: Any | None = None,
         clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
+        *,
+        retries: int = 3,
+        backoff_seconds: float = 1.0,
+        sleep: Callable[[float], None] = time.sleep,
     ) -> None:
+        """``retries`` extra attempts (exponential backoff) smooth over the provider's intermittent failures."""
         self._obb = obb
         self._clock = clock
+        self._retries = max(0, retries)
+        self._backoff = backoff_seconds
+        self._sleep = sleep
 
     @property
     def obb(self) -> Any:
@@ -227,12 +236,17 @@ class OpenBBAdapter:
     # -- helpers ----------------------------------------------------------
 
     def _call(self, endpoint: str, fn: Callable[[], Any]) -> Any:
-        try:
-            return fn()
-        except DataUnavailable:
-            raise
-        except Exception as exc:  # provider boundary: any OpenBB/provider failure
-            raise DataUnavailable(f"{endpoint} failed: {exc}") from exc
+        attempt = 0
+        while True:
+            try:
+                return fn()
+            except DataUnavailable:
+                raise
+            except Exception as exc:  # provider boundary: any OpenBB/provider failure
+                if attempt >= self._retries:
+                    raise DataUnavailable(f"{endpoint} failed after {attempt + 1} attempt(s): {exc}") from exc
+                self._sleep(self._backoff * (2**attempt))
+                attempt += 1
 
     def _provenance(self, response: Any, provider: str, endpoint: str) -> Provenance:
         used = getattr(response, "provider", None) or provider

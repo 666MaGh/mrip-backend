@@ -1,0 +1,105 @@
+# OMX Stockholm Large Cap candidate list, compiled by hand on 2026-10-03 from general market knowledge.
+# UNVERIFIED: there is no free machine-readable source (Nasdaq Nordic gates it). Segment membership and
+# sector labels are approximate. Each ticker is checked against the price provider before use, and the
+# owner is expected to review the list. 2026-10-03 provider check: 99 of 102 candidates returned current Yahoo prices;
+# FNOX, LUMI SDB and TIGO SDB did not (likely delisted or listed under another symbol) and were removed. Columns: Symbol (Nasdaq short name), Name, Sector (GICS-style), Currency
+Symbol,Name,Sector,Currency
+ABB,ABB Ltd,Industrials,SEK
+AAK,AAK AB,Consumer Staples,SEK
+ADDT B,Addtech B,Industrials,SEK
+AFRY,AFRY AB,Industrials,SEK
+ALFA,Alfa Laval,Industrials,SEK
+ALIV SDB,Autoliv SDB,Consumer Discretionary,SEK
+ALLEI,Alleima,Materials,SEK
+AMBEA,Ambea,Health Care,SEK
+ARJO B,Arjo B,Health Care,SEK
+ASSA B,Assa Abloy B,Industrials,SEK
+ATCO A,Atlas Copco A,Industrials,SEK
+ATCO B,Atlas Copco B,Industrials,SEK
+AXFO,Axfood,Consumer Staples,SEK
+AZA,Avanza Bank Holding,Financials,SEK
+AZN,AstraZeneca,Health Care,SEK
+BALD B,Fastighets AB Balder B,Real Estate,SEK
+BEIJ B,Beijer Ref B,Industrials,SEK
+BETS B,Betsson B,Consumer Discretionary,SEK
+BILL,Billerud,Materials,SEK
+BOL,Boliden,Materials,SEK
+BRAV,Bravida Holding,Industrials,SEK
+BURE,Bure Equity,Financials,SEK
+CAMX,Camurus,Health Care,SEK
+CAST,Castellum,Real Estate,SEK
+CATE,Catena,Real Estate,SEK
+CLAS B,Clas Ohlson B,Consumer Discretionary,SEK
+DOM,Dometic Group,Consumer Discretionary,SEK
+ELUX B,Electrolux B,Consumer Discretionary,SEK
+EKTA B,Elekta B,Health Care,SEK
+EMBRAC B,Embracer Group B,Communication Services,SEK
+EPI A,Epiroc A,Industrials,SEK
+EPI B,Epiroc B,Industrials,SEK
+EQT,EQT AB,Financials,SEK
+ERIC B,Ericsson B,Information Technology,SEK
+ESSITY B,Essity B,Consumer Staples,SEK
+EVO,Evolution AB,Consumer Discretionary,SEK
+FABG,Fabege,Real Estate,SEK
+GETI B,Getinge B,Health Care,SEK
+HEM,Hemnet Group,Communication Services,SEK
+HEXA B,Hexagon B,Information Technology,SEK
+HM B,H&M B,Consumer Discretionary,SEK
+HOLM B,Holmen B,Materials,SEK
+HPOL B,HEXPOL B,Materials,SEK
+HUFV A,Hufvudstaden A,Real Estate,SEK
+HUSQ B,Husqvarna B,Industrials,SEK
+INDT,Indutrade,Industrials,SEK
+INDU A,Industrivärden A,Financials,SEK
+INDU C,Industrivärden C,Financials,SEK
+INSTAL,Instalco,Industrials,SEK
+INVE A,Investor A,Financials,SEK
+INVE B,Investor B,Financials,SEK
+KINV B,Kinnevik B,Financials,SEK
+LAGR B,Lagercrantz Group B,Information Technology,SEK
+LATO B,Latour B,Industrials,SEK
+LIFCO B,Lifco B,Industrials,SEK
+LOOMIS,Loomis,Industrials,SEK
+LUND B,Lundbergföretagen B,Financials,SEK
+MCOV B,Medicover B,Health Care,SEK
+MIPS,MIPS,Consumer Discretionary,SEK
+MTRS,Munters Group,Industrials,SEK
+MYCR,Mycronic,Information Technology,SEK
+NCC B,NCC B,Industrials,SEK
+NDA SE,Nordea Bank,Financials,SEK
+NIBE B,NIBE Industrier B,Industrials,SEK
+NOLA B,Nolato B,Materials,SEK
+PEAB B,Peab B,Industrials,SEK
+PNDX B,Pandox B,Real Estate,SEK
+RATO B,Ratos B,Industrials,SEK
+SAAB B,Saab B,Industrials,SEK
+SAGA B,Sagax B,Real Estate,SEK
+SAND,Sandvik,Industrials,SEK
+SAVE,Nordnet,Financials,SEK
+SCA B,SCA B,Materials,SEK
+SEB A,SEB A,Financials,SEK
+SECT B,Sectra B,Information Technology,SEK
+SECU B,Securitas B,Industrials,SEK
+SHB A,Handelsbanken A,Financials,SEK
+SINCH,Sinch,Information Technology,SEK
+SKA B,Skanska B,Industrials,SEK
+SKF B,SKF B,Industrials,SEK
+SOBI,Swedish Orphan Biovitrum,Health Care,SEK
+SSAB A,SSAB A,Materials,SEK
+SSAB B,SSAB B,Materials,SEK
+STE R,Stora Enso R,Materials,SEK
+STOR B,Storskogen Group B,Industrials,SEK
+SWEC B,Sweco B,Industrials,SEK
+SWED A,Swedbank A,Financials,SEK
+SYSR,Systemair,Industrials,SEK
+TEL2 B,Tele2 B,Communication Services,SEK
+TELIA,Telia Company,Communication Services,SEK
+THULE,Thule Group,Consumer Discretionary,SEK
+TREL B,Trelleborg B,Industrials,SEK
+TRUE B,Truecaller B,Communication Services,SEK
+VITR,Vitrolife,Health Care,SEK
+VOLCAR B,Volvo Car B,Consumer Discretionary,SEK
+VOLV A,Volvo A,Industrials,SEK
+VOLV B,Volvo B,Industrials,SEK
+WALL B,Wallenstam B,Real Estate,SEK
+WIHL,Wihlborgs Fastigheter,Real Estate,SEK
