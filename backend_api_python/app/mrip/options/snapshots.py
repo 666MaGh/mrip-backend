@@ -155,3 +155,14 @@ class OptionsSnapshotStore:
             finally:
                 cur.close()
         return [r["snapshot_timestamp"] for r in rows]
+
+    def symbols(self) -> list[str]:
+        """Return underlyings with at least one stored options snapshot."""
+        with self._connect() as conn:
+            cur = conn.cursor()
+            try:
+                cur.execute("SELECT DISTINCT underlying FROM mrip_options_snapshots ORDER BY underlying")
+                rows = cur.fetchall()
+            finally:
+                cur.close()
+        return [str(row["underlying"]) for row in rows]

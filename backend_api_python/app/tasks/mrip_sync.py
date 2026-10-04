@@ -102,3 +102,13 @@ def __serialize_report(report: object) -> dict[str, object] | None:
         return dict(dataclasses.asdict(report))
 
     return None
+
+
+@celery_app.task(name="quantdinger.tasks.mrip_discover")
+def mrip_discover() -> dict[str, object]:
+    """Generate the daily research observations feed."""
+    if not _enabled("ENABLE_MRIP_DISCOVER"):
+        return {"skipped": True}
+    from app.mrip.discover.jobs import run_discover
+    result = run_discover()
+    return {"status": result.status, "report": __serialize_report(result.report), "reason": result.reason}

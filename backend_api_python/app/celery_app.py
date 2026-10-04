@@ -62,6 +62,7 @@ celery_app.conf.update(
         "quantdinger.tasks.mrip_price_sync": {"queue": "maintenance"},
         "quantdinger.tasks.mrip_price_sync_all": {"queue": "maintenance"},
         "quantdinger.tasks.mrip_options_snapshots": {"queue": "maintenance"},
+        "quantdinger.tasks.mrip_discover": {"queue": "maintenance"},
     },
     beat_schedule={
         "fundamental-sync": {
@@ -87,6 +88,10 @@ celery_app.conf.update(
         "mrip-price-sync": {
             "task": "quantdinger.tasks.mrip_price_sync_all",
             "schedule": max(600, int(os.getenv("MRIP_PRICE_SYNC_INTERVAL_SEC", "3600"))),
+        },
+        "mrip-discover": {
+            "task": "quantdinger.tasks.mrip_discover",
+            "schedule": max(1800, int(os.getenv("MRIP_DISCOVER_INTERVAL_SEC", "21600"))),
         },
         "mrip-options-snapshots": {
             "task": "quantdinger.tasks.mrip_options_snapshots",

@@ -168,6 +168,30 @@ class RelationshipGraph:
             finally:
                 cur.close()
 
+    def get_node_by_id(self, node_id: int) -> Node | None:
+        """Return a node by its database identifier."""
+        with self._connect() as conn:
+            cur = conn.cursor()
+            try:
+                cur.execute("SELECT id, node_type, node_key, name, attributes FROM mrip_rel_nodes WHERE id = %s", (node_id,))
+                row = cur.fetchone()
+            finally:
+                cur.close()
+        return _node(row) if row else None
+
+    def list_active_edges(self, limit: int = 1000) -> list[Edge]:
+        """Return active hypothesis and validated edges, excluding rejected edges."""
+        if limit < 1:
+            raise ValueError("limit must be positive")
+        with self._connect() as conn:
+            cur = conn.cursor()
+            try:
+                cur.execute("SELECT " + _EDGE_COLUMNS + " FROM mrip_rel_edges WHERE retired_version IS NULL AND status = ANY(%s::text[]) ORDER BY id LIMIT %s", ([EdgeStatus.HYPOTHESIS.value, EdgeStatus.VALIDATED.value], limit))
+                rows = cur.fetchall()
+            finally:
+                cur.close()
+        return [_edge(row) for row in rows]
+
     # -- edges ------------------------------------------------------------
 
     def add_edge(

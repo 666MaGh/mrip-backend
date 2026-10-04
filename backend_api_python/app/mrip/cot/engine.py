@@ -114,6 +114,10 @@ class CotEngine:
             raise KeyError(f"unknown COT market {key!r}")
         return m
 
+    def markets(self) -> tuple[CotMarket, ...]:
+        """Return the registered markets once each, in registration order."""
+        return tuple({market.code: market for market in self._markets.values()}.values())
+
     def snapshot(self, market: str | CotMarket, as_of: date | None = None, *, group: str | None = None) -> CotSnapshot:
         m = market if isinstance(market, CotMarket) else self.market(market)
         today = as_of or date.today()
