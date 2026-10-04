@@ -74,6 +74,23 @@ def mrip_price_sync_all() -> dict[str, object]:
     return results
 
 
+@celery_app.task(name="quantdinger.tasks.mrip_options_snapshots")
+def mrip_options_snapshots() -> dict[str, object]:
+    """Collect point-in-time options chains on a scheduled cadence."""
+    if not _enabled("ENABLE_MRIP_OPTIONS_SNAPSHOTS"):
+        return {"skipped": True}
+
+    from app.mrip.options.jobs import run_options_snapshots
+
+    budget_seconds = float(os.getenv("MRIP_OPTIONS_SNAPSHOT_BUDGET_SEC", "900"))
+    result = run_options_snapshots(budget_seconds=budget_seconds)
+    return {
+        "status": result.status,
+        "report": __serialize_report(result.report),
+        "reason": result.reason,
+    }
+
+
 def __serialize_report(report: object) -> dict[str, object] | None:
     """Serialize SyncReport to a JSON-safe dict."""
     if report is None:
