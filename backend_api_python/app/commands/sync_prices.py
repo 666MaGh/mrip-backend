@@ -13,19 +13,8 @@ from __future__ import annotations
 import argparse
 import sys
 
-from app.mrip.data.openbb_adapter import OpenBBAdapter
-from app.mrip.data.yahoo_adapter import YahooChartAdapter
-from app.mrip.prices.ingest import PriceIngestor
-from app.mrip.prices.store import PriceStore
-from app.mrip.relationships.graph import RelationshipGraph
-from app.utils.db import get_db_connection, init_database
-
-
-# universe -> (provider name stored with the bars, gateway factory, default pacing seconds)
-UNIVERSES = {
-    "sp500": ("cboe", lambda: OpenBBAdapter(retries=1), 2.0),
-    "omxslc": ("yahoo", lambda: YahooChartAdapter(retries=2), 1.0),
-}
+from app.mrip.prices.jobs import UNIVERSES, run_price_sync
+from app.utils.db import init_database
 
 
 def main() -> None:
@@ -39,8 +28,8 @@ def main() -> None:
     parser.add_argument(
         "--budget-seconds",
         type=float,
-        default=None,
-        help="Maximum seconds to spend on ingestion (default: no limit)",
+        default=1500.0,
+        help="Maximum seconds to spend on ingestion (default: 1500)",
     )
     parser.add_argument(
         "--min-interval",
@@ -53,42 +42,26 @@ def main() -> None:
     # Initialize the database and migrations.
     init_database(strict_migrations=False)
 
-    # Create the graph and fetch universe symbols.
-    graph = RelationshipGraph(get_db_connection)
-    nodes = graph.list_nodes_in_universe(args.universe.upper())
-    symbols = []
-    for node in nodes:
-        series_info = node.attributes.get("series")
-        if series_info and isinstance(series_info, dict):
-            symbol = series_info.get("symbol")
-            if symbol:
-                symbols.append(symbol)
-
-    if not symbols:
-        print(f"No symbols found in universe {args.universe}")
-        sys.exit(0)
-
-    # Build the gateway and store.
-    provider, make_gateway, default_interval = UNIVERSES[args.universe]
-    gateway = make_gateway()
-    store = PriceStore(get_db_connection)
-
-    # Run the ingestor.
-    ingestor = PriceIngestor(
-        gateway,
-        store,
-        provider=provider,
-        min_interval_seconds=args.min_interval if args.min_interval is not None else default_interval,
+    # Run the price sync job.
+    result = run_price_sync(
+        args.universe,
+        budget_seconds=args.budget_seconds,
+        min_interval=args.min_interval,
+        load_if_empty=True,
     )
-    report = ingestor.sync(symbols, budget_seconds=args.budget_seconds)
 
-    # Print the report.
-    print(
-        f"SyncReport(attempted={report.attempted}, succeeded={report.succeeded}, "
-        f"failed={len(report.failed)}, skipped_fresh={report.skipped_fresh}, "
-        f"not_attempted={report.not_attempted}, bars_written={report.bars_written}, "
-        f"halted_reason={report.halted_reason!r})"
-    )
+    # Print the result.
+    if result.report is not None:
+        print(
+            f"SyncReport(attempted={result.report.attempted}, succeeded={result.report.succeeded}, "
+            f"failed={len(result.report.failed)}, skipped_fresh={result.report.skipped_fresh}, "
+            f"not_attempted={result.report.not_attempted}, bars_written={result.report.bars_written}, "
+            f"halted_reason={result.report.halted_reason!r})"
+        )
+    elif result.reason:
+        print(f"{result.status}: {result.reason}")
+    else:
+        print(f"{result.status}")
 
     sys.exit(0)
 

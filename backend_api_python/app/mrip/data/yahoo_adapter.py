@@ -96,7 +96,7 @@ class YahooChartAdapter:
         if start is None:
             start = date(1990, 1, 1)
         if end is None:
-            end = date.today()
+            end = self._clock().date()
 
         period1 = int(datetime.combine(start, datetime.min.time(), tzinfo=timezone.utc).timestamp())
         period2 = int(

@@ -47,6 +47,7 @@ celery_app.conf.update(
         "app.tasks.fast_analysis",
         "app.tasks.maintenance",
         "app.tasks.fundamental_sync",
+        "app.tasks.mrip_sync",
     ),
     task_routes={
         "quantdinger.tasks.fast_analysis": {"queue": "ai"},
@@ -58,6 +59,8 @@ celery_app.conf.update(
         "quantdinger.tasks.fundamental_sync_tick": {"queue": "maintenance"},
         "quantdinger.tasks.worker_heartbeat": {"queue": "maintenance"},
         "quantdinger.tasks.cleanup_runtime_metadata": {"queue": "maintenance"},
+        "quantdinger.tasks.mrip_price_sync": {"queue": "maintenance"},
+        "quantdinger.tasks.mrip_price_sync_all": {"queue": "maintenance"},
     },
     beat_schedule={
         "fundamental-sync": {
@@ -79,6 +82,10 @@ celery_app.conf.update(
         "market-catalog-sync": {
             "task": "quantdinger.tasks.market_catalog_sync",
             "schedule": max(900, int(os.getenv("MARKET_CATALOG_SYNC_INTERVAL_SEC", "86400"))),
+        },
+        "mrip-price-sync": {
+            "task": "quantdinger.tasks.mrip_price_sync_all",
+            "schedule": max(600, int(os.getenv("MRIP_PRICE_SYNC_INTERVAL_SEC", "3600"))),
         },
         "celery-worker-heartbeat": {
             "task": "quantdinger.tasks.worker_heartbeat",
