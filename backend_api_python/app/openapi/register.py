@@ -41,6 +41,7 @@ _PREFIX_TAGS: list[tuple[str, str]] = [
     ("/api/fast-analysis", "FastAnalysis"),
     ("/api/billing", "Billing"),
     ("/api/quick-trade", "QuickTrade"),
+    ("/api/mrip", "MRIP"),
 ]
 
 
@@ -80,6 +81,7 @@ def register_human_blueprints(api: Api) -> None:
     from app.routes.community import community_blp
     from app.routes.fast_analysis import fast_analysis_blp
     from app.routes.billing import billing_blp
+    from app.routes.mrip import mrip_blp
 
     registrations: list[tuple] = [
         (health_blp, ""),
@@ -104,6 +106,7 @@ def register_human_blueprints(api: Api) -> None:
         (community_blp, "/api/community"),
         (fast_analysis_blp, "/api/fast-analysis"),
         (billing_blp, "/api/billing"),
+        (mrip_blp, "/api/mrip"),
     ]
 
     # MRIP: broker credentials, broker integrations and quick-trade are hidden

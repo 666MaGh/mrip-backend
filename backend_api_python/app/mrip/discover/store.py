@@ -57,12 +57,16 @@ class DiscoverStore:
             finally: cur.close()
         return [StoredItem(int(r['id']),r['as_of'],Kind(r['kind']),r['subject'],r['headline'],float(r['magnitude']),float(r['score']),dict(r['components'] or {}),dict(r['details'] or {}),dict(r['data_quality'] or {}),bool(r['modeled']),r['policy_version'],r['status']) for r in rows]
 
-    def dismiss(self, item_id: int) -> None:
+    def dismiss(self, item_id: int) -> bool:
+        """Mark an item dismissed. Returns False when no item has that id."""
         with self._connect() as conn:
             cur=conn.cursor()
-            try: cur.execute("UPDATE mrip_discover_items SET status='dismissed' WHERE id=%s",(item_id,))
+            try:
+                cur.execute("UPDATE mrip_discover_items SET status='dismissed' WHERE id=%s",(item_id,))
+                found = cur.rowcount > 0
             finally: cur.close()
             conn.commit()
+        return found
 
     def recent_counts(self, as_of: date, days: int = 7) -> dict[tuple[str,str],int]:
         with self._connect() as conn:

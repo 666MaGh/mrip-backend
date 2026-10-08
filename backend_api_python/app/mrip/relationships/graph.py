@@ -192,6 +192,50 @@ class RelationshipGraph:
                 cur.close()
         return [_edge(row) for row in rows]
 
+    def list_edges(self, statuses: Sequence[EdgeStatus], limit: int = 200) -> list[Edge]:
+        """Current (non-retired) edges with one of the given statuses, oldest first."""
+        if limit < 1:
+            raise ValueError("limit must be positive")
+        if not statuses:
+            raise ValueError("statuses must not be empty")
+        with self._connect() as conn:
+            cur = conn.cursor()
+            try:
+                cur.execute(
+                    "SELECT " + _EDGE_COLUMNS + " FROM mrip_rel_edges "
+                    "WHERE retired_version IS NULL AND status = ANY(%s::text[]) ORDER BY id LIMIT %s",
+                    ([s.value for s in statuses], limit),
+                )
+                rows = cur.fetchall()
+            finally:
+                cur.close()
+        return [_edge(row) for row in rows]
+
+    def get_edge(self, edge_id: int) -> Edge | None:
+        """A current (non-retired) edge by identifier."""
+        with self._connect() as conn:
+            cur = conn.cursor()
+            try:
+                cur.execute(
+                    "SELECT " + _EDGE_COLUMNS + " FROM mrip_rel_edges WHERE id = %s AND retired_version IS NULL",
+                    (edge_id,),
+                )
+                row = cur.fetchone()
+            finally:
+                cur.close()
+        return _edge(row) if row else None
+
+    def get_nodes_by_ids(self, node_ids: Sequence[int]) -> dict[int, Node]:
+        """Batch node lookup by identifier (one query)."""
+        if not node_ids:
+            return {}
+        with self._connect() as conn:
+            cur = conn.cursor()
+            try:
+                return self._nodes_by_id(cur, list(node_ids))
+            finally:
+                cur.close()
+
     # -- edges ------------------------------------------------------------
 
     def add_edge(
