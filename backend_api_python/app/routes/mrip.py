@@ -35,6 +35,7 @@ from app.mrip.api.serializers import (
     parse_price_days,
     parse_price_provider,
     price_series_json,
+    related_json,
     research_card_json,
 )
 from app.mrip.calibration.store import CalibrationStore
@@ -48,6 +49,8 @@ from app.mrip.outcomes.store import PredictionStore
 from app.mrip.prices.gateway import StoredDataGateway
 from app.mrip.prices.store import PriceStore
 from app.mrip.regime.engine import MarketRegimeEngine
+from app.mrip.related.service import RelatedService
+from app.mrip.related.types import UnknownSymbol
 from app.mrip.research.card import ResearchCardService
 from app.mrip.research.types import UnknownSecurity
 from app.mrip.relationships.graph import RelationshipGraph
@@ -92,6 +95,10 @@ def _research_card_service() -> ResearchCardService:
         outcome_store=PredictionStore(get_db_connection),
         calibration_store=CalibrationStore(get_db_connection),
     )
+
+
+def _related_service() -> RelatedService:
+    return RelatedService(_graph(), _evidence_store(), _price_store())
 
 
 # -- helpers ----------------------------------------------------------------
@@ -252,3 +259,21 @@ def get_research_card(symbol: str):
     except UnknownSecurity:
         return _error(f"unknown security {symbol}", 404)
     return _ok(research_card_json(card))
+
+
+# -- related neighbours -----------------------------------------------------
+
+@mrip_blp.route('/symbols/<symbol>/related', methods=['GET'])
+@login_required
+def get_related_symbols(symbol: str):
+    """Direct relationship neighbours of a security (both directions); stored data only, as of a date."""
+    try:
+        as_of = parse_date(_arg('as_of'), 'as_of') or datetime.now(timezone.utc).date()
+        include_hypothesis = parse_bool(_arg('include_hypothesis'), 'include_hypothesis', default=False)
+    except ApiInputError as exc:
+        return _error(str(exc), 400)
+    try:
+        payload = _related_service().build_related(symbol, as_of, include_hypothesis)
+    except UnknownSymbol:
+        return _error(f"unknown symbol {symbol}", 404)
+    return _ok(related_json(payload))

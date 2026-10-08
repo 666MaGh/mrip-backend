@@ -295,3 +295,8 @@ def research_card_json(card: Mapping[str, Any]) -> dict[str, Any]:
         analysis = {k: v for k, v in options.items() if k != "status"}
         out["options"] = {"status": "available", **options_analysis_json(analysis)}
     return out
+
+
+def related_json(payload: Mapping[str, Any]) -> dict[str, Any]:
+    """Related-neighbour payload: already plain JSON types; rows are copied so the source is not shared."""
+    return {**payload, "rows": [dict(row) for row in payload["rows"]]}

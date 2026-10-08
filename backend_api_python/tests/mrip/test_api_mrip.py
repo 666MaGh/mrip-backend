@@ -23,6 +23,8 @@ from app.mrip.discover.types import Kind
 from app.mrip.evidence.types import Evidence, RelationshipRef, SourceType, Stance
 from app.mrip.relationships.types import Direction, Edge, EdgeStatus, Node, NodeKey, NodeType, Path, RelationType
 from app.mrip.options.analysis import MODELED_LABEL, analyze_options
+from app.mrip.related.service import RelatedService
+from app.mrip.related.types import UnknownSymbol
 from app.mrip.research.types import UnknownSecurity
 
 AUTH = {"Authorization": "Bearer test-token"}
@@ -469,3 +471,66 @@ def test_research_card_requires_auth(client, research):
     resp = client.get("/api/mrip/research/NVDA")
     assert resp.status_code == 401
     assert research.calls == []
+
+
+# -- related neighbours -------------------------------------------------------
+
+class FakeRelated:
+    def __init__(self, error: Exception | None = None) -> None:
+        self.error = error
+        self.calls: list[tuple[str, date, bool]] = []
+
+    def build_related(self, symbol: str, as_of: date, include_hypothesis: bool = False) -> dict:
+        self.calls.append((symbol, as_of, include_hypothesis))
+        if self.error is not None:
+            raise self.error
+        return {"symbol": symbol, "as_of": as_of.isoformat(), "include_hypothesis": include_hypothesis,
+                "queried": None, "rows": [{"edge_id": 1, "role": "src"}], "meta": {"disclaimer": "x"}}
+
+
+@pytest.fixture
+def related(monkeypatch, authed):
+    stub = FakeRelated()
+    monkeypatch.setattr(mrip_routes, "_related_service", lambda: stub)
+    return stub
+
+
+def test_related_happy_path_passes_normalised_inputs(client, related):
+    resp = client.get("/api/mrip/symbols/nvda/related?as_of=2026-10-01&include_hypothesis=true", headers=AUTH)
+    assert resp.status_code == 200
+    body = resp.get_json()
+    assert body["code"] == 1
+    assert body["data"]["rows"] == [{"edge_id": 1, "role": "src"}]
+    assert related.calls == [("nvda", date(2026, 10, 1), True)]
+
+
+def test_related_defaults_exclude_hypothesis(client, related):
+    assert client.get("/api/mrip/symbols/NVDA/related", headers=AUTH).status_code == 200
+    assert related.calls[0][2] is False
+
+
+def test_related_rejects_bad_input(client, related):
+    assert client.get("/api/mrip/symbols/NVDA/related?as_of=2026-13-01", headers=AUTH).status_code == 400
+    assert client.get("/api/mrip/symbols/NVDA/related?include_hypothesis=maybe", headers=AUTH).status_code == 400
+    assert related.calls == []
+
+
+def test_related_unknown_symbol_is_404(monkeypatch, client, authed):
+    monkeypatch.setattr(mrip_routes, "_related_service", lambda: FakeRelated(UnknownSymbol("ZZZZ")))
+    resp = client.get("/api/mrip/symbols/ZZZZ/related", headers=AUTH)
+    assert resp.status_code == 404
+    assert resp.get_json()["code"] == 0
+
+
+def test_related_requires_auth(client, related):
+    assert client.get("/api/mrip/symbols/NVDA/related").status_code == 401
+    assert related.calls == []
+
+
+def test_related_service_factory_wires_the_three_stores(monkeypatch):
+    monkeypatch.setattr(mrip_routes, "_graph", lambda: "graph")
+    monkeypatch.setattr(mrip_routes, "_evidence_store", lambda: "evidence")
+    monkeypatch.setattr(mrip_routes, "_price_store", lambda: "prices")
+    service = mrip_routes._related_service()
+    assert isinstance(service, RelatedService)
+    assert (service._graph, service._evidence, service._prices) == ("graph", "evidence", "prices")
