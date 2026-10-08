@@ -55,10 +55,11 @@ def main() -> int:
     from app.utils.db import get_db_connection, init_database
 
     parser = argparse.ArgumentParser(description="Statistically validate hypothesis relationship edges")
-    parser.parse_args()
+    parser.add_argument("--price-provider", default="cboe", help="Stored price provider to read (default: cboe)")
+    args = parser.parse_args()
     init_database(strict_migrations=False)
     graph = RelationshipGraph(get_db_connection)
-    gateway = StoredDataGateway(PriceStore(get_db_connection), live=OpenBBAdapter(retries=1))
+    gateway = StoredDataGateway(PriceStore(get_db_connection), provider=args.price_provider, live=OpenBBAdapter(retries=1))
     validator = RelationshipValidator(graph, EvidenceStore(get_db_connection), gateway)
     rows, summary = validate_hypothesis_edges(graph, validator)
     for row in rows:

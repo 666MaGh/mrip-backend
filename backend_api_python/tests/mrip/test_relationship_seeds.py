@@ -110,6 +110,21 @@ def test_company_nodes_declare_series_symbol():
             assert node.attributes["series"] == {"symbol": node.key.key}
 
 
+def test_theme_node_declares_series_symbol_and_proxy():
+    nodes, _ = parse_seed(SEED_FILE)
+    theme = next(n for n in nodes if n.key == NodeKey(NodeType.THEME, "ai-infrastructure"))
+    assert theme.attributes["series"] == {"symbol": "SMH"}
+    assert theme.attributes["proxy"]
+
+
+def test_reseed_overwrites_theme_attributes():
+    graph = FakeGraph()
+    load_builtin_seeds(graph)
+    load_builtin_seeds(graph)
+    theme = graph.nodes[NodeKey(NodeType.THEME, "ai-infrastructure")]
+    assert theme.attributes["series"] == {"symbol": "SMH"}
+
+
 def test_unknown_relation_type_raises_graph_error(tmp_path):
     path = _write(tmp_path, _minimal(edge_relation="NOT_A_RELATION"))
     with pytest.raises(GraphError):

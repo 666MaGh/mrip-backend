@@ -5,7 +5,12 @@
       "type": "THEME",
       "key": "ai-infrastructure",
       "name": "AI infrastructure",
-      "attributes": {}
+      "attributes": {
+        "series": {
+          "symbol": "SMH"
+        },
+        "proxy": "VanEck Semiconductor ETF used as AI-infrastructure proxy"
+      }
     },
     {
       "type": "COMPANY",
