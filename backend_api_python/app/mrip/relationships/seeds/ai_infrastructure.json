@@ -1,0 +1,364 @@
+{
+  "seed": "ai-infrastructure",
+  "nodes": [
+    {
+      "type": "THEME",
+      "key": "ai-infrastructure",
+      "name": "AI infrastructure",
+      "attributes": {}
+    },
+    {
+      "type": "COMPANY",
+      "key": "NVDA",
+      "name": "NVIDIA",
+      "attributes": {
+        "series": {
+          "symbol": "NVDA"
+        },
+        "sector": "Technology"
+      }
+    },
+    {
+      "type": "COMPANY",
+      "key": "AVGO",
+      "name": "Broadcom",
+      "attributes": {
+        "series": {
+          "symbol": "AVGO"
+        },
+        "sector": "Technology"
+      }
+    },
+    {
+      "type": "COMPANY",
+      "key": "ANET",
+      "name": "Arista Networks",
+      "attributes": {
+        "series": {
+          "symbol": "ANET"
+        },
+        "sector": "Technology"
+      }
+    },
+    {
+      "type": "COMPANY",
+      "key": "MSFT",
+      "name": "Microsoft",
+      "attributes": {
+        "series": {
+          "symbol": "MSFT"
+        },
+        "sector": "Technology"
+      }
+    },
+    {
+      "type": "COMPANY",
+      "key": "AMZN",
+      "name": "Amazon",
+      "attributes": {
+        "series": {
+          "symbol": "AMZN"
+        },
+        "sector": "Consumer Discretionary"
+      }
+    },
+    {
+      "type": "COMPANY",
+      "key": "GOOGL",
+      "name": "Alphabet",
+      "attributes": {
+        "series": {
+          "symbol": "GOOGL"
+        },
+        "sector": "Communication Services"
+      }
+    },
+    {
+      "type": "COMPANY",
+      "key": "META",
+      "name": "Meta Platforms",
+      "attributes": {
+        "series": {
+          "symbol": "META"
+        },
+        "sector": "Communication Services"
+      }
+    },
+    {
+      "type": "COMPANY",
+      "key": "VRT",
+      "name": "Vertiv",
+      "attributes": {
+        "series": {
+          "symbol": "VRT"
+        },
+        "sector": "Industrials"
+      }
+    },
+    {
+      "type": "COMPANY",
+      "key": "ETN",
+      "name": "Eaton",
+      "attributes": {
+        "series": {
+          "symbol": "ETN"
+        },
+        "sector": "Industrials"
+      }
+    },
+    {
+      "type": "COMPANY",
+      "key": "GEV",
+      "name": "GE Vernova",
+      "attributes": {
+        "series": {
+          "symbol": "GEV"
+        },
+        "sector": "Industrials"
+      }
+    },
+    {
+      "type": "COMPANY",
+      "key": "VST",
+      "name": "Vistra",
+      "attributes": {
+        "series": {
+          "symbol": "VST"
+        },
+        "sector": "Utilities"
+      }
+    },
+    {
+      "type": "COMPANY",
+      "key": "CEG",
+      "name": "Constellation Energy",
+      "attributes": {
+        "series": {
+          "symbol": "CEG"
+        },
+        "sector": "Utilities"
+      }
+    },
+    {
+      "type": "COMPANY",
+      "key": "FCX",
+      "name": "Freeport-McMoRan",
+      "attributes": {
+        "series": {
+          "symbol": "FCX"
+        },
+        "sector": "Materials"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "src": {
+        "type": "COMPANY",
+        "key": "MSFT"
+      },
+      "dst": {
+        "type": "COMPANY",
+        "key": "NVDA"
+      },
+      "relation": "CUSTOMER_OF",
+      "status": "hypothesis",
+      "source": "mrip-seed-ai-infrastructure-v1",
+      "attributes": {
+        "expected_sign": 1
+      }
+    },
+    {
+      "src": {
+        "type": "COMPANY",
+        "key": "AMZN"
+      },
+      "dst": {
+        "type": "COMPANY",
+        "key": "NVDA"
+      },
+      "relation": "CUSTOMER_OF",
+      "status": "hypothesis",
+      "source": "mrip-seed-ai-infrastructure-v1",
+      "attributes": {
+        "expected_sign": 1
+      }
+    },
+    {
+      "src": {
+        "type": "COMPANY",
+        "key": "GOOGL"
+      },
+      "dst": {
+        "type": "COMPANY",
+        "key": "NVDA"
+      },
+      "relation": "CUSTOMER_OF",
+      "status": "hypothesis",
+      "source": "mrip-seed-ai-infrastructure-v1",
+      "attributes": {
+        "expected_sign": 1
+      }
+    },
+    {
+      "src": {
+        "type": "COMPANY",
+        "key": "META"
+      },
+      "dst": {
+        "type": "COMPANY",
+        "key": "NVDA"
+      },
+      "relation": "CUSTOMER_OF",
+      "status": "hypothesis",
+      "source": "mrip-seed-ai-infrastructure-v1",
+      "attributes": {
+        "expected_sign": 1
+      }
+    },
+    {
+      "src": {
+        "type": "COMPANY",
+        "key": "AVGO"
+      },
+      "dst": {
+        "type": "THEME",
+        "key": "ai-infrastructure"
+      },
+      "relation": "BENEFITS_FROM",
+      "status": "hypothesis",
+      "source": "mrip-seed-ai-infrastructure-v1",
+      "attributes": {
+        "expected_sign": 1
+      }
+    },
+    {
+      "src": {
+        "type": "COMPANY",
+        "key": "ANET"
+      },
+      "dst": {
+        "type": "THEME",
+        "key": "ai-infrastructure"
+      },
+      "relation": "BENEFITS_FROM",
+      "status": "hypothesis",
+      "source": "mrip-seed-ai-infrastructure-v1",
+      "attributes": {
+        "expected_sign": 1
+      }
+    },
+    {
+      "src": {
+        "type": "COMPANY",
+        "key": "NVDA"
+      },
+      "dst": {
+        "type": "THEME",
+        "key": "ai-infrastructure"
+      },
+      "relation": "BENEFITS_FROM",
+      "status": "hypothesis",
+      "source": "mrip-seed-ai-infrastructure-v1",
+      "attributes": {
+        "expected_sign": 1
+      }
+    },
+    {
+      "src": {
+        "type": "COMPANY",
+        "key": "VRT"
+      },
+      "dst": {
+        "type": "THEME",
+        "key": "ai-infrastructure"
+      },
+      "relation": "BENEFITS_FROM",
+      "status": "hypothesis",
+      "source": "mrip-seed-ai-infrastructure-v1",
+      "attributes": {
+        "expected_sign": 1
+      }
+    },
+    {
+      "src": {
+        "type": "COMPANY",
+        "key": "ETN"
+      },
+      "dst": {
+        "type": "THEME",
+        "key": "ai-infrastructure"
+      },
+      "relation": "BENEFITS_FROM",
+      "status": "hypothesis",
+      "source": "mrip-seed-ai-infrastructure-v1",
+      "attributes": {
+        "expected_sign": 1
+      }
+    },
+    {
+      "src": {
+        "type": "COMPANY",
+        "key": "GEV"
+      },
+      "dst": {
+        "type": "THEME",
+        "key": "ai-infrastructure"
+      },
+      "relation": "BENEFITS_FROM",
+      "status": "hypothesis",
+      "source": "mrip-seed-ai-infrastructure-v1",
+      "attributes": {
+        "expected_sign": 1
+      }
+    },
+    {
+      "src": {
+        "type": "COMPANY",
+        "key": "VST"
+      },
+      "dst": {
+        "type": "THEME",
+        "key": "ai-infrastructure"
+      },
+      "relation": "BENEFITS_FROM",
+      "status": "hypothesis",
+      "source": "mrip-seed-ai-infrastructure-v1",
+      "attributes": {
+        "expected_sign": 1
+      }
+    },
+    {
+      "src": {
+        "type": "COMPANY",
+        "key": "CEG"
+      },
+      "dst": {
+        "type": "THEME",
+        "key": "ai-infrastructure"
+      },
+      "relation": "BENEFITS_FROM",
+      "status": "hypothesis",
+      "source": "mrip-seed-ai-infrastructure-v1",
+      "attributes": {
+        "expected_sign": 1
+      }
+    },
+    {
+      "src": {
+        "type": "COMPANY",
+        "key": "FCX"
+      },
+      "dst": {
+        "type": "THEME",
+        "key": "ai-infrastructure"
+      },
+      "relation": "BENEFITS_FROM",
+      "status": "hypothesis",
+      "source": "mrip-seed-ai-infrastructure-v1",
+      "attributes": {
+        "expected_sign": 1
+      }
+    }
+  ]
+}
