@@ -73,3 +73,43 @@ def test_peer_items_receive_universe_liquidity_percentile():
     outlier = next(item for item in store.items if item.observation.subject == "S0")
     peers = [item for item in store.items if item.observation.kind.value == "PEER_DIVERGENCE"]
     assert peers and outlier.observation.liquidity == 1.0
+
+
+def test_relationship_legs_fall_back_to_yahoo_and_prefer_cboe():
+    from datetime import timedelta
+    from types import SimpleNamespace
+
+    class RelationshipGraph(Graph):
+        def __init__(self):
+            self.nodes = {
+                1: SimpleNamespace(id=1, key="NVDA", node_type="stock", attributes={"series": {"symbol": "NVDA"}}),
+                2: SimpleNamespace(id=2, key="SMH", node_type="etf", attributes={"series": {"symbol": "SMH"}}),
+            }
+        def list_active_edges(self, limit=1000):
+            return [SimpleNamespace(src_id=1, dst_id=2, relation_type="peer", status=SimpleNamespace(value="active"))]
+        def get_node_by_id(self, node_id): return self.nodes[node_id]
+
+    class Prices:
+        def __init__(self, stored):
+            self.stored, self.calls = stored, []
+        def series(self, provider, symbol, end=None):
+            self.calls.append((provider, symbol))
+            bars = self.stored.get((provider, symbol))
+            if bars is None: return None
+            return SimpleNamespace(symbol=symbol, bars=bars)
+
+    def bars(closes, start=date(2026, 1, 1)):
+        return [SimpleNamespace(ts=start + timedelta(days=i), close=c, volume=1000) for i, c in enumerate(closes)]
+
+    yahoo_only = {("yahoo", "NVDA"): bars([100. + i for i in range(40)]), ("yahoo", "SMH"): bars([50. + i * 0.5 for i in range(40)])}
+    prices = Prices(yahoo_only)
+    service = DiscoverService(graph=RelationshipGraph(), price_store=prices, snapshot_store=None, discover_store=Store())
+    summary = service.run(date(2026, 2, 9), option_symbols=[])
+    assert ("yahoo", "NVDA") in prices.calls and ("yahoo", "SMH") in prices.calls
+    assert "relationships" not in summary.errors
+
+    both = {**yahoo_only, ("cboe", "NVDA"): bars([100.] * 40), ("cboe", "SMH"): bars([50.] * 40)}
+    prices = Prices(both)
+    service = DiscoverService(graph=RelationshipGraph(), price_store=prices, snapshot_store=None, discover_store=Store())
+    service.run(date(2026, 2, 9), option_symbols=[])
+    assert ("yahoo", "NVDA") not in prices.calls and ("yahoo", "SMH") not in prices.calls

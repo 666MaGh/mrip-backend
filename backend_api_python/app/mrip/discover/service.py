@@ -28,6 +28,14 @@ class DiscoverService:
         self.evidence_store, self.regime_engine, self.cot_engine = evidence_store, regime_engine, cot_engine
         self.policy, self.rank_policy = policy, rank_policy
 
+    def _series(self, symbol: str, as_of: date) -> Any:
+        """Return the first provider's price series with bars, trying cboe then yahoo."""
+        for provider in ("cboe", "yahoo"):
+            series = self.price_store.series(provider, symbol, end=as_of)
+            if series is not None and series.bars:
+                return series
+        return None
+
     def run(self, as_of: date, *, option_symbols: Sequence[str] | None = None) -> DiscoverRunSummary:
         observations: list[Observation] = []; errors: dict[str,str] = {}
         def group(name: str, fn: Any) -> None:
@@ -62,8 +70,8 @@ class DiscoverService:
                     val=node.attributes.get("series",{}); return val.get("symbol") if isinstance(val,dict) else None
                 a,b=symbol(src),symbol(dst)
                 if not a or not b: continue
-                pa=self.price_store.series("cboe",a,end=as_of); pb=self.price_store.series("cboe",b,end=as_of)
-                if not pa or not pb: continue
+                pa=self._series(a,as_of); pb=self._series(b,as_of)
+                if pa is None or pb is None: continue
                 obs=relationship_events(f"{a}->{b}",log_returns(prices_to_series(pa,as_of)),log_returns(prices_to_series(pb,as_of)),as_of,self.policy,edge.status.value)
                 if self.evidence_store:
                     from app.mrip.evidence.types import RelationshipRef
