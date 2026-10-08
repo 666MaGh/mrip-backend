@@ -285,3 +285,13 @@ def options_analysis_json(analysis: Mapping[str, Any]) -> dict[str, Any]:
         "observed": analysis.get("observed"),
         "modeled": modeled,
     }
+
+
+def research_card_json(card: Mapping[str, Any]) -> dict[str, Any]:
+    """Shape a Research Card: an available options section keeps observed and MODELED / ESTIMATED apart."""
+    out: dict[str, Any] = dict(card)
+    options = card.get("options")
+    if isinstance(options, Mapping) and options.get("status") == "available":
+        analysis = {k: v for k, v in options.items() if k != "status"}
+        out["options"] = {"status": "available", **options_analysis_json(analysis)}
+    return out

@@ -22,7 +22,8 @@ from app.mrip.discover.store import StoredItem
 from app.mrip.discover.types import Kind
 from app.mrip.evidence.types import Evidence, RelationshipRef, SourceType, Stance
 from app.mrip.relationships.types import Direction, Edge, EdgeStatus, Node, NodeKey, NodeType, Path, RelationType
-from app.mrip.options.analysis import MODELED_LABEL
+from app.mrip.options.analysis import MODELED_LABEL, analyze_options
+from app.mrip.research.types import UnknownSecurity
 
 AUTH = {"Authorization": "Bearer test-token"}
 NOW = datetime(2026, 10, 1, 19, 0, tzinfo=timezone.utc)
@@ -394,3 +395,77 @@ def test_evidence_summary_shaping_uses_plain_values():
     summary = evidence_summary_json(summarize([_evidence(Stance.SUPPORT)]))
     assert summary["by_source_type"] == {"EARNINGS_TRANSCRIPT": 1}
     assert summary["latest_available_at"] == "2026-09-30T12:00:00+00:00"
+
+
+# -- research card ------------------------------------------------------------
+
+class FakeResearchCards:
+    def __init__(self, error: Exception | None = None) -> None:
+        self.error = error
+        self.calls: list[tuple[str, date]] = []
+
+    def build_card(self, symbol: str, as_of: date) -> dict:
+        self.calls.append((symbol, as_of))
+        if self.error is not None:
+            raise self.error
+        analysis = analyze_options(_chain()).to_dict()
+        return {
+            "symbol": symbol, "as_of": as_of.isoformat(), "card_version": "research-card-v0-uncalibrated",
+            "options": {"status": "available", **analysis},
+            "cot": {"status": "unavailable", "reason": "no COT market mapped"},
+            "why": [],
+        }
+
+
+@pytest.fixture
+def research(monkeypatch, authed):
+    fake = FakeResearchCards()
+    monkeypatch.setattr(mrip_routes, "_research_card_service", lambda: fake)
+    return fake
+
+
+def test_research_card_happy_path_and_as_of(client, research):
+    resp = client.get("/api/mrip/research/NVDA?as_of=2026-10-01", headers=AUTH)
+    assert resp.status_code == 200
+    body = resp.get_json()
+    assert body["code"] == 1
+    assert body["data"]["as_of"] == "2026-10-01"
+    assert body["data"]["cot"]["status"] == "unavailable"
+    assert research.calls == [("NVDA", date(2026, 10, 1))]
+
+
+def test_research_card_options_keep_modeled_separate(client, research):
+    data = client.get("/api/mrip/research/NVDA?as_of=2026-10-01", headers=AUTH).get_json()["data"]
+    options = data["options"]
+    assert options["status"] == "available"
+    assert options["modeled"]["label"] == MODELED_LABEL
+    assert options["modeled"]["modeled"] is True
+    assert "gex" in options["modeled"]
+    assert "gex" not in options["observed"]
+
+
+def test_research_card_defaults_to_today_utc(client, research):
+    resp = client.get("/api/mrip/research/NVDA", headers=AUTH)
+    assert resp.status_code == 200
+    assert research.calls[-1][1] == datetime.now(timezone.utc).date()
+
+
+def test_research_card_rejects_bad_as_of(client, research):
+    resp = client.get("/api/mrip/research/NVDA?as_of=2026-13-01", headers=AUTH)
+    assert resp.status_code == 400
+    assert resp.get_json()["code"] == 0
+    assert research.calls == []
+
+
+def test_research_card_unknown_security_is_404(client, monkeypatch, authed):
+    fake = FakeResearchCards(error=UnknownSecurity("ZZZZ"))
+    monkeypatch.setattr(mrip_routes, "_research_card_service", lambda: fake)
+    resp = client.get("/api/mrip/research/ZZZZ?as_of=2026-10-01", headers=AUTH)
+    assert resp.status_code == 404
+    assert resp.get_json() == {"code": 0, "msg": "unknown security ZZZZ"}
+
+
+def test_research_card_requires_auth(client, research):
+    resp = client.get("/api/mrip/research/NVDA")
+    assert resp.status_code == 401
+    assert research.calls == []

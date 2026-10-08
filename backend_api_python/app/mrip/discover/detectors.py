@@ -93,17 +93,35 @@ def cot_events(snapshot: CotSnapshot, as_of: date, policy: DiscoverPolicy = Disc
     return out
 
 
-def relationship_events(subject: str, src_returns: pd.Series, dst_returns: pd.Series, as_of: date, policy: DiscoverPolicy = DiscoverPolicy(), edge_status: str | None = None) -> list[Observation]:
-    src,dst=align(src_returns,dst_returns); n=policy.relationship_fit_days; recent=policy.relationship_recent_days
-    if len(src)<n+recent:return []
+def _fit_divergence(src: pd.Series, dst: pd.Series, policy: DiscoverPolicy) -> tuple[float, float] | None:
+    """Beta and z of the latest window's residual against the fitted history (aligned inputs).
+
+    Returns None when there is too little history. Shared by Discover and the Research Card.
+    """
+    n=policy.relationship_fit_days; recent=policy.relationship_recent_days
+    if len(src)<n+recent: return None
     sx,dy=src.iloc[:-recent],dst.iloc[:-recent]; beta=float(np.dot(sx,dy)/np.dot(sx,sx)) if float(np.dot(sx,sx)) else 0.
     residual=dy-beta*sx
     historical=residual.rolling(recent).sum().dropna(); scale=float(historical.std(ddof=1))
     recent_res=float((dst.iloc[-recent:]-beta*src.iloc[-recent:]).sum()); z=recent_res/scale if scale>0 else 0.
+    return beta, z
+
+
+def relationship_divergence(src_returns: pd.Series, dst_returns: pd.Series, policy: DiscoverPolicy = DiscoverPolicy()) -> tuple[float, float] | None:
+    """(beta, z) for the current relationship residual; None when history is too short."""
+    src,dst=align(src_returns,dst_returns)
+    return _fit_divergence(src,dst,policy)
+
+
+def relationship_events(subject: str, src_returns: pd.Series, dst_returns: pd.Series, as_of: date, policy: DiscoverPolicy = DiscoverPolicy(), edge_status: str | None = None) -> list[Observation]:
+    src,dst=align(src_returns,dst_returns); recent=policy.relationship_recent_days
+    fit=_fit_divergence(src,dst,policy)
+    if fit is None:return []
+    beta,z=fit
     details={"edge_status":edge_status,"beta":beta,"z":z}
     out=[]
     if abs(z)>=policy.divergence_z:out.append(Observation(Kind.RELATIONSHIP_DIVERGENCE,subject,as_of,"Relationship residual diverged from its fitted history",min(1.,abs(z)/4),details))
-    try: lag=lead_lag(sx,dy,5)
+    try: lag=lead_lag(src.iloc[:-recent],dst.iloc[:-recent],5)
     except ValueError: lag=None
     src_hist=src.iloc[:-recent]; src_scale=float(src_hist.rolling(recent).sum().std(ddof=1)); sz=float(src.iloc[-recent:].sum())/src_scale if src_scale>0 else 0.
     dst_sum=float(dst.iloc[-recent:].sum())

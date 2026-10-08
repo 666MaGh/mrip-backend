@@ -35,13 +35,21 @@ from app.mrip.api.serializers import (
     parse_price_days,
     parse_price_provider,
     price_series_json,
+    research_card_json,
 )
+from app.mrip.calibration.store import CalibrationStore
+from app.mrip.cot.engine import CotEngine
 from app.mrip.discover.store import DiscoverStore
 from app.mrip.evidence.store import EvidenceStore, summarize
 from app.mrip.evidence.types import RelationshipRef
 from app.mrip.options.analysis import analyze_options
 from app.mrip.options.snapshots import OptionsSnapshotStore
+from app.mrip.outcomes.store import PredictionStore
+from app.mrip.prices.gateway import StoredDataGateway
 from app.mrip.prices.store import PriceStore
+from app.mrip.regime.engine import MarketRegimeEngine
+from app.mrip.research.card import ResearchCardService
+from app.mrip.research.types import UnknownSecurity
 from app.mrip.relationships.graph import RelationshipGraph
 from app.mrip.relationships.types import EdgeStatus, GraphError, NodeKey
 from app.utils.auth import login_required
@@ -70,6 +78,20 @@ def _price_store() -> PriceStore:
 
 def _snapshot_store() -> OptionsSnapshotStore:
     return OptionsSnapshotStore(get_db_connection)
+
+
+def _research_card_service() -> ResearchCardService:
+    # Stored data only: the HTTP path makes no network calls (live providers stay in the jobs).
+    prices = _price_store()
+    gateway = StoredDataGateway(prices)
+    return ResearchCardService(
+        _graph(), _evidence_store(), prices,
+        regime_engine=MarketRegimeEngine(gateway),
+        cot_engine=CotEngine(gateway),
+        snapshot_store=_snapshot_store(),
+        outcome_store=PredictionStore(get_db_connection),
+        calibration_store=CalibrationStore(get_db_connection),
+    )
 
 
 # -- helpers ----------------------------------------------------------------
@@ -213,3 +235,20 @@ def get_latest_options_analysis(symbol: str):
         return _error(f"no stored options snapshot for {symbol}", 404)
     analysis = analyze_options(snapshot).to_dict()
     return _ok(options_analysis_json(analysis))
+
+
+# -- research card ----------------------------------------------------------
+
+@mrip_blp.route('/research/<symbol>', methods=['GET'])
+@login_required
+def get_research_card(symbol: str):
+    """Per-security Research Card as of a date (default today UTC); unavailable sections carry a reason."""
+    try:
+        as_of = parse_date(_arg('as_of'), 'as_of') or datetime.now(timezone.utc).date()
+    except ApiInputError as exc:
+        return _error(str(exc), 400)
+    try:
+        card = _research_card_service().build_card(symbol, as_of)
+    except UnknownSecurity:
+        return _error(f"unknown security {symbol}", 404)
+    return _ok(research_card_json(card))
