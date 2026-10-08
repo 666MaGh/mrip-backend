@@ -51,6 +51,7 @@ from app.mrip.prices.store import PriceStore
 from app.mrip.regime.engine import MarketRegimeEngine
 from app.mrip.related.service import RelatedService
 from app.mrip.related.types import UnknownSymbol
+from app.mrip.security_regime.service import SecurityRegimeService
 from app.mrip.research.card import ResearchCardService
 from app.mrip.research.types import UnknownSecurity
 from app.mrip.relationships.graph import RelationshipGraph
@@ -98,7 +99,11 @@ def _research_card_service() -> ResearchCardService:
 
 
 def _related_service() -> RelatedService:
-    return RelatedService(_graph(), _evidence_store(), _price_store())
+    return RelatedService(_graph(), _evidence_store(), _price_store(), snapshot_store=_snapshot_store())
+
+
+def _security_regime_service() -> SecurityRegimeService:
+    return SecurityRegimeService(_price_store(), snapshots=_snapshot_store(), graph=_graph())
 
 
 # -- helpers ----------------------------------------------------------------
@@ -277,3 +282,18 @@ def get_related_symbols(symbol: str):
     except UnknownSymbol:
         return _error(f"unknown symbol {symbol}", 404)
     return _ok(related_json(payload))
+
+
+@mrip_blp.route('/symbols/<symbol>/regime', methods=['GET'])
+@login_required
+def get_symbol_regime(symbol: str):
+    """Regime of one security as of a date (stored data only); the gamma block is modeled and labelled."""
+    try:
+        as_of = parse_date(_arg('as_of'), 'as_of') or datetime.now(timezone.utc).date()
+    except ApiInputError as exc:
+        return _error(str(exc), 400)
+    try:
+        payload = _security_regime_service().build_regime(symbol, as_of)
+    except UnknownSymbol:
+        return _error(f"unknown symbol {symbol}", 404)
+    return _ok(payload)

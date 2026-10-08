@@ -23,6 +23,9 @@ Rules
      symbol is expected to move up toward it. Negative s flips the direction.
 - Point-in-time: prices and evidence are cut at ``as_of``. The graph is the current graph version.
 - Stored data only: no network. A failing row degrades to unavailable with a reason, never a 500.
+- Work 020: the QUERIED symbol gets ``queried_regime`` (regime plus a ``modeled`` gamma block from the
+  latest stored options snapshot). Each row gets the neighbour's ``regime`` (no gamma) and
+  ``discrepancies`` from ``find_discrepancies``. Regime fields never change ``signal``.
 """
 from __future__ import annotations
 
@@ -37,12 +40,17 @@ from app.mrip.discover.detectors import DiscoverPolicy, relationship_divergence
 from app.mrip.evidence.types import Evidence, RelationshipRef, SourceType
 from app.mrip.related.types import DISCLAIMER, RELATED_VERSION, SIGNAL_LABEL, UnknownSymbol
 from app.mrip.relationships.types import Direction, Edge, EdgeStatus, Node, NodeKey, NodeType, Path
-from app.mrip.stats.service import prices_to_series
+from app.mrip.security_regime.service import (
+    SecurityRegimeService,
+    find_discrepancies,
+    load_close_prices,
+    regime_json,
+)
+from app.mrip.security_regime.types import SecurityRegime
 from app.mrip.stats.transforms import log_returns
 
 logger = logging.getLogger(__name__)
 
-_PROVIDERS = ("cboe", "yahoo")
 _LOOKUP_TYPES = (NodeType.COMPANY, NodeType.SECURITY)
 _VALIDATED_ONLY = frozenset({EdgeStatus.VALIDATED})
 _WITH_HYPOTHESIS = frozenset({EdgeStatus.VALIDATED, EdgeStatus.HYPOTHESIS})
@@ -60,6 +68,10 @@ class EvidencePort(Protocol):
 
 class PricePort(Protocol):
     def series(self, provider: str, symbol: str, start: date | None = None, end: date | None = None) -> Any: ...
+
+
+class SnapshotPort(Protocol):
+    def latest_before(self, underlying: str, as_of: datetime) -> Any: ...
 
 
 def translate_direction(stored: str, queried_is_src: bool) -> str:
@@ -139,11 +151,13 @@ class RelatedService:
         price_store: PricePort,
         *,
         policy: DiscoverPolicy = DiscoverPolicy(),
+        snapshot_store: SnapshotPort | None = None,
     ) -> None:
         self._graph = graph
         self._evidence = evidence_store
         self._prices = price_store
         self._policy = policy
+        self._regimes = SecurityRegimeService(price_store, snapshots=snapshot_store)
 
     # -- public -----------------------------------------------------------------
 
@@ -154,13 +168,14 @@ class RelatedService:
         if queried is None and queried_prices is None:
             raise UnknownSymbol(sym)
         queried_returns = self._returns(queried_prices)
+        queried_regime = self._regimes.classify(queried_prices, as_of)
 
         statuses = _WITH_HYPOTHESIS if include_hypothesis else _VALIDATED_ONLY
         paths = self._graph.traverse(
             NodeKey(queried.node_type, queried.key), max_depth=1, direction=Direction.BOTH, statuses=statuses,
         ) if queried is not None else []
         rows: list[dict[str, Any]] = []
-        neighbour_cache: dict[str, pd.Series | None] = {}
+        neighbour_cache: dict[str, pd.Series | None] = {}  # neighbour symbol -> closes up to as_of
         seen: set[int] = set()
         for path in sorted(paths, key=lambda p: (p.end.node_type.value, p.end.key, p.edges[0].id)):
             edge = path.edges[0]
@@ -170,7 +185,7 @@ class RelatedService:
             seen.add(edge.id)
             role = "src" if edge.src_id == queried.id else "dst"
             rows.append(self._safe_row(
-                sym, as_of, queried, queried_returns, edge, neighbour, role, neighbour_cache,
+                sym, as_of, queried, queried_returns, queried_regime, edge, neighbour, role, neighbour_cache,
             ))
 
         return {
@@ -178,10 +193,14 @@ class RelatedService:
             "as_of": as_of.isoformat(),
             "include_hypothesis": include_hypothesis,
             "queried": _node_json(queried),
+            "queried_regime": {**regime_json(queried_regime), "modeled": self._regimes.modeled(sym, as_of)},
             "rows": rows,
             "meta": {
                 "as_of": as_of.isoformat(),
-                "policy_version": {"related": RELATED_VERSION, "divergence": self._policy.version},
+                "policy_version": {
+                    "related": RELATED_VERSION, "divergence": self._policy.version,
+                    "security_regime": self._regimes.policy_version,
+                },
                 "counts": _counts(rows),
                 "disclaimer": DISCLAIMER,
             },
@@ -198,11 +217,7 @@ class RelatedService:
 
     def _prices_until(self, symbol: str, as_of: date) -> pd.Series | None:
         """Close prices up to ``as_of`` from the first provider with stored bars; None when there are none."""
-        for provider in _PROVIDERS:
-            series = self._prices.series(provider, symbol, end=as_of)
-            if series is not None and series.bars:
-                return prices_to_series(series, as_of)
-        return None
+        return load_close_prices(self._prices, symbol, as_of)
 
     @staticmethod
     def _returns(prices: pd.Series | None) -> pd.Series | None:
@@ -218,17 +233,21 @@ class RelatedService:
         as_of: date,
         queried: Node | None,
         queried_returns: pd.Series | None,
+        queried_regime: SecurityRegime,
         edge: Edge,
         neighbour: Node,
         role: str,
         cache: dict[str, pd.Series | None],
     ) -> dict[str, Any]:
         try:
-            return self._row(sym, as_of, queried, queried_returns, edge, neighbour, role, cache)
+            return self._row(sym, as_of, queried, queried_returns, queried_regime, edge, neighbour, role, cache)
         except Exception:  # one neighbour must not fail the whole response
             logger.exception("related row failed for edge %s", edge.id)
             failed = _unavailable("internt fel vid beräkning av raden")
-            return _assemble(edge, neighbour, role, lag=failed, divergence=failed, signal=_abstain(failed["reason"]))
+            return _assemble(
+                edge, neighbour, role, lag=failed, divergence=failed, signal=_abstain(failed["reason"]),
+                regime=_unavailable("internt fel vid beräkning av regimen"), discrepancies=[],
+            )
 
     def _row(
         self,
@@ -236,6 +255,7 @@ class RelatedService:
         as_of: date,
         queried: Node | None,
         queried_returns: pd.Series | None,
+        queried_regime: SecurityRegime,
         edge: Edge,
         neighbour: Node,
         role: str,
@@ -247,12 +267,15 @@ class RelatedService:
 
         n_sym = _symbol(neighbour)
         beta: float | None = None
+        neighbour_regime: SecurityRegime | None = None
         if n_sym is None:
             divergence = {**_unavailable("grannen saknar prisserie"), "subject": "neighbour"}
         else:
             if n_sym not in cache:
-                cache[n_sym] = self._returns(self._prices_until(n_sym, as_of))
-            divergence, beta = self._divergence(sym, queried_returns, n_sym, cache[n_sym])
+                cache[n_sym] = self._prices_until(n_sym, as_of)
+            neighbour_prices = cache[n_sym]
+            neighbour_regime = self._neighbour_regime(n_sym, as_of, neighbour_prices)
+            divergence, beta = self._divergence(sym, queried_returns, n_sym, self._returns(neighbour_prices))
 
         sigma = divergence.get("sigma")
         signal = signal_for(
@@ -263,7 +286,28 @@ class RelatedService:
             sign=relation_sign(edge.attributes.get("expected_sign"), beta),
             threshold=self._policy.divergence_z,
         )
-        return _assemble(edge, neighbour, role, lag=lag, divergence=divergence, signal=signal)
+        if neighbour_regime is None:
+            regime_json_value = _unavailable("grannen saknar prisserie")
+            discrepancies: list[dict[str, Any]] = []
+        else:
+            regime_json_value = regime_json(neighbour_regime)
+            discrepancies = [
+                d.to_json() for d in find_discrepancies(
+                    queried_regime, neighbour_regime, edge,
+                    queried_symbol=sym, neighbour_symbol=n_sym or "grannen",
+                )
+            ]
+        return _assemble(
+            edge, neighbour, role, lag=lag, divergence=divergence, signal=signal,
+            regime=regime_json_value, discrepancies=discrepancies,
+        )
+
+    def _neighbour_regime(self, n_sym: str, as_of: date, prices: pd.Series | None) -> SecurityRegime:
+        try:
+            return self._regimes.classify(prices, as_of)
+        except Exception:  # regime problems degrade the row, never the response
+            logger.exception("neighbour regime failed for %s", n_sym)
+            return self._regimes.classify(None, as_of)
 
     def _lag(
         self, edge: Edge, queried: Node | None, neighbour: Node, queried_is_src: bool, as_of: date,
@@ -323,6 +367,7 @@ def _node_json(node: Node | None) -> dict[str, Any] | None:
 
 def _assemble(
     edge: Edge, neighbour: Node, role: str, *, lag: dict[str, Any], divergence: dict[str, Any], signal: dict[str, Any],
+    regime: dict[str, Any], discrepancies: list[dict[str, Any]],
 ) -> dict[str, Any]:
     return {
         "edge_id": edge.id,
@@ -335,6 +380,8 @@ def _assemble(
         "lag": lag,
         "divergence": divergence,
         "signal": signal,
+        "regime": regime,
+        "discrepancies": discrepancies,
     }
 
 
@@ -346,4 +393,7 @@ def _counts(rows: list[dict[str, Any]]) -> dict[str, int]:
         "lag_available": sum(1 for r in rows if r["lag"]["status"] == "available"),
         "divergence_available": sum(1 for r in rows if r["divergence"]["status"] == "available"),
         "signals_available": sum(1 for r in rows if r["signal"]["status"] == "available"),
+        "discrepancies_attention": sum(
+            1 for r in rows for d in r["discrepancies"] if d["severity"] == "attention"
+        ),
     }
