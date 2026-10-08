@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from app.mrip.edgar.parser import MAX_SENTENCE_CHARS, html_to_text, parse_10k_html
+import pytest
+
+from app.mrip.edgar.parser import MAX_SENTENCE_CHARS, classify, html_to_text, parse_10k_html
 
 FIXTURE = """<html><head><title>nvda-10k</title><style>p {color: red}</style></head><body>
 <div style="display:none"><ix:header>HIDDEN Microsoft 99% of revenue customers</ix:header></div>
@@ -93,3 +95,55 @@ def test_abbreviations_do_not_split_sentences():
     assert [s.sentence for s in statements if s.kind == "supplier"] == [
         "We depend on TSMC to build chips."
     ]
+
+
+CEG_SENTENCE = (
+    "Under the agreement, Microsoft will purchase the output generated from the renewed plant which includes "
+    "energy, capacity and emissions-free attributes as part of its goal to help power its data center."
+)
+
+
+def _kinds(sentence: str) -> list[tuple[str, tuple[str, ...]]]:
+    return [(kind, names) for kind, _, names in classify(sentence)]
+
+
+def test_counterparty_purchasing_filer_output_is_customer_not_supplier():
+    # CEG 10-K (work 021): Microsoft buys from CEG, so MSFT CUSTOMER_OF CEG (kind=customer).
+    assert _kinds(CEG_SENTENCE) == [("customer", ("Microsoft",))]
+
+
+@pytest.mark.parametrize(
+    ("sentence", "expected"),
+    [
+        ("Amazon buys our data center systems under a multi-year agreement.", [("customer", ("Amazon",))]),
+        ("Microsoft purchases from us under a multi-year agreement.", [("customer", ("Microsoft",))]),
+        ("Our data center products are purchased by Microsoft and Amazon.", [("customer", ("Microsoft", "Amazon"))]),
+        ("Our power is sold to Google under a long-term agreement.", [("customer", ("Google",))]),
+        ("We sell our systems to Dell and Lenovo.", [("customer", ("Dell", "Lenovo"))]),
+        ("Broadcom supplies us with networking chips for our servers.", [("supplier", ("Broadcom",))]),
+        ("Our chips are supplied by TSMC.", [("supplier", ("TSMC",))]),
+        ("We purchase memory from Micron under long-term agreements.", [("supplier", ("Micron",))]),
+    ],
+)
+def test_direction_by_grammatical_subject(sentence, expected):
+    assert _kinds(sentence) == expected
+
+
+@pytest.mark.parametrize(
+    "sentence",
+    [
+        # Filer is not the subject of the supplier cue: the named company depends on the filer.
+        "Microsoft depends on our products for its cloud services.",
+        # Named buyer of a third party's products: no filer output is described.
+        "Microsoft will purchase products from third parties for its data centers.",
+        # Cost-side purchases are not customers.
+        "Purchases from Micron accounted for 20% of our cost of revenue.",
+    ],
+)
+def test_ambiguous_or_reversed_subject_emits_nothing(sentence):
+    assert classify(sentence) == []
+
+
+def test_clause_with_third_party_subject_does_not_borrow_filer_as_supplier_subject():
+    # "Microsoft buys from us" is a real customer edge; "TSMC depends on ..." has no filer subject, so no supplier.
+    assert _kinds("Microsoft buys from us, and TSMC depends on specialty materials.") == [("customer", ("Microsoft",))]

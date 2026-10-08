@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from datetime import date
 from typing import Literal
 
-PARSER_VERSION = "edgar-10k-v0-uncalibrated"
+PARSER_VERSION = "edgar-10k-v0.1-uncalibrated"
 ASSESSED_BY = f"edgar:{PARSER_VERSION}"
 PUBLISHER = "SEC EDGAR"
 FORM_10K = "10-K"

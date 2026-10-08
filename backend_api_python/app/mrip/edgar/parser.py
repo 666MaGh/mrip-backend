@@ -43,12 +43,55 @@ _CUSTOMER_LIST_RE = re.compile(
 _SUPPLIER_RE = re.compile(
     r"\b(?:depend(?:s|ed|ent|ence)?\s+(?:up)?on|rel(?:y|ies|ied)\s+(?:up)?on|"
     r"sole[- ]source[sd]?|single[- ]source[sd]?|sole supplier|single supplier|"
-    r"we purchase[sd]?|purchases? (?:\w+ ){0,3}from|manufactured by|"
+    r"purchases? (?:\w+ ){0,3}from|manufactured by|"
     r"(?:contract )?manufacturers? such as|foundr(?:y|ies) such as|supplied by|"
     r"from (?:a |one )?(?:single|sole|limited number of) (?:third[- ]party )?(?:supplier|vendor|source|manufacturer)s?)\b",
     re.IGNORECASE,
 )
 _NAME_RUN_RE = re.compile(r"[A-Z][\w&'\-.]*(?:[ \t]+(?:&[ \t]*)?[A-Z][\w&'\-.]*)*")
+
+# Direction rules. Each pattern below encodes who is the grammatical subject:
+#  * supplier cues ("we depend on X", "our chips are supplied by X") need the FILER as subject;
+#  * "X supplies us" has a named third party as subject and the filer as object (X is the supplier);
+#  * "X will purchase ... / buys our products / purchases from us" has a named third party as
+#    subject buying from the filer, so X is the CUSTOMER;
+#  * "our products are sold to X" and "we sell ... to X" have the filer as seller, so X is the CUSTOMER.
+# Casing is significant where a capitalised run is the name, so these patterns are not IGNORECASE.
+_FILER_MARKER = r"(?:We|we|Our|our|us|The Company|the Company|The Registrant|the Registrant)"
+_FILER_MARKER_RE = re.compile(rf"\b{_FILER_MARKER}\b")
+_SUBJECT_NAME = r"[A-Z][\w&'\-.]*(?:[ \t]+(?:&[ \t]*)?[A-Z][\w&'\-.]*)*"
+_BUY_OBJECT = (
+    r"(?:(?:the|our|certain|all|substantially all|a|an|some|additional|significant|such)\s+)*"
+    r"(?:(?:[a-z][\w-]*\s+){0,3}?(?:output|outputs|products?|energy|power|capacity|electricity|services|goods|"
+    r"semiconductors?|chips?|systems?|equipment|components?|solutions?|attributes?)\b"
+    # "products from third parties" is a supply relation to someone else; emit nothing.
+    r"(?!\s+(?:from|of|by|made|manufactured|sourced)\s+(?!(?:us|our)\b))"
+    r"|from\s+(?:us|our\s+(?:company|business)|the\s+(?:Company|Registrant))\b)"
+)
+_COUNTERPARTY_BUYS_RE = re.compile(
+    rf"(?P<subject>{_SUBJECT_NAME})\s+(?:(?:will|would|may|can|could|has|have|had|also|currently)\s+)*"
+    rf"(?:purchase[sd]?|buy|buys|bought|procure[sd]?|licen[cs]e[sd]?)\s+{_BUY_OBJECT}"
+)
+# Leading list of named counterparties ("Amazon, Alphabet and Meta"), nothing after the list.
+_NAME_LIST = rf"{_SUBJECT_NAME}(?:(?:,\s*|\s+(?:and|or)\s+){_SUBJECT_NAME})*"
+_COUNTERPARTY_PASSIVE_RE = re.compile(
+    rf"\b(?:We|we|Our|our|The Company's|the Company's|The Registrant's|the Registrant's)\b"
+    r"(?:(?! [A-Z])[^.;]){0,80}?\b(?:is|are|was|were|has been|have been)\s+(?:also\s+)?"
+    rf"(?:sold|licensed|purchased|bought|shipped)\s+(?:to|by)\s+(?P<target>{_NAME_LIST})"
+)
+_FILER_SELLS_TO_RE = re.compile(
+    rf"\b{_FILER_MARKER}\s+(?:also\s+)?(?:sell|sells|sold|supply|supplies|supplied|ship|ships|"
+    r"license|licenses|licensed|provide|provides|provided)\s+(?:(?:[a-z][\w-]*|,)\s+){0,6}?"
+    rf"to\s+(?P<target>{_NAME_LIST})"
+)
+_THIRD_PARTY_SUPPLIES_US_RE = re.compile(
+    rf"(?P<subject>{_SUBJECT_NAME})\s+(?:(?:will|has|have|had|also|currently)\s+)*"
+    r"(?:supply|supplies|supplied|sell|sells|sold|provide|provides|provided|license|licenses|licensed)\s+"
+    r"(?:(?:[a-z][\w-]*)\s+){0,4}?(?:us|our (?:company|business))\b"
+)
+_PURCHASE_CONTEXT_RE = re.compile(
+    r"\b(?:purchases?|purchased|buys?|bought|procurement|costs?|suppliers?|vendors?)\b", re.IGNORECASE
+)
 
 # Leading/standalone words that are never a counterparty name on their own.
 _STOP_WORDS = frozenset(
@@ -172,15 +215,58 @@ def classify(sentence: str) -> list[tuple[StatementKind, float | None, tuple[str
     elif _CUSTOMER_LIST_RE.search(sentence):
         found.append(("customer", percent, extract_names(sentence)))
     elif percent is not None and _ACCOUNTED_RE.search(sentence) and _REVENUE_WORD_RE.search(sentence):
-        names = extract_names(_names_before_accounted(sentence))
+        prefix = _names_before_accounted(sentence)
+        # "Purchases from Micron accounted for 20% of cost of revenue": Micron is a supplier, not a customer.
+        names = () if _PURCHASE_CONTEXT_RE.search(prefix) else extract_names(prefix)
         if names:
             found.append(("customer", percent, names))
 
-    if _SUPPLIER_RE.search(sentence):
-        supplier_names = extract_names(sentence)
-        if supplier_names:
-            found.append(("supplier", percent, supplier_names))
+    if not any(kind == "customer" for kind, _, _ in found):
+        counterparty_names = _counterparty_customer_names(sentence)
+        if counterparty_names:
+            found.append(("customer", percent, counterparty_names))
+
+    supplier_names = _supplier_names(sentence)
+    if supplier_names:
+        found.append(("supplier", percent, supplier_names))
     return found
+
+
+def _filer_is_subject_before(prefix: str) -> bool:
+    """True when the last filer marker before a cue is its subject: no third-party name or clause break between."""
+    markers = list(_FILER_MARKER_RE.finditer(prefix))
+    if not markers:
+        return False
+    tail = prefix[markers[-1].end():]
+    return not (_NAME_RUN_RE.search(tail) or "," in tail or ";" in tail)
+
+
+def _supplier_names(sentence: str) -> tuple[str, ...]:
+    """Supplier names. Filer depends on X / X supplies the filer; the cue must have the filer as subject."""
+    for match in _SUPPLIER_RE.finditer(sentence):
+        if _filer_is_subject_before(sentence[: match.start()]):
+            names = extract_names(sentence[match.end():])
+            if names:
+                return names
+    for match in _THIRD_PARTY_SUPPLIES_US_RE.finditer(sentence):
+        names = extract_names(match.group("subject"))
+        if names:
+            return names
+    return ()
+
+
+def _counterparty_customer_names(sentence: str) -> tuple[str, ...]:
+    """Customer names: a named counterparty buys from the filer, or the filer sells to a named counterparty."""
+    for match in _COUNTERPARTY_BUYS_RE.finditer(sentence):
+        names = extract_names(match.group("subject"))
+        if names:
+            return names
+    for pattern in (_COUNTERPARTY_PASSIVE_RE, _FILER_SELLS_TO_RE):
+        for match in pattern.finditer(sentence):
+            names = extract_names(match.group("target"))
+            if names:
+                return names
+    return ()
 
 
 def parse_text(text: str) -> list[CandidateStatement]:

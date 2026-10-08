@@ -218,7 +218,7 @@ def test_new_edges_are_hypotheses_with_filing_provenance_and_support_evidence():
     assert item.publisher == "SEC EDGAR"
     assert item.source_title == "SEC 10-K NVDA 2026-02-25"
     assert item.attributes["percent"] == 16.0
-    assert item.attributes["parser_version"] == "edgar-10k-v0-uncalibrated"
+    assert item.attributes["parser_version"] == "edgar-10k-v0.1-uncalibrated"
     assert summary.edges_added == len(graph.edges)
 
 
@@ -317,3 +317,36 @@ def test_latest_10k_is_selected_by_filing_date():
     assert filing.accession == "0001045810-26-000020"
     assert filing.filed == date(2026, 2, 25)
     assert filing.url == NVDA_URL
+
+
+CEG_CIK = 1868275
+CEG_URL = archive_url(CEG_CIK, "0001868275-26-000008", "ceg-10k.htm")
+CEG_10K = """<html><body>
+<h3>Item 1. Business</h3>
+<p>Under the agreement, Microsoft will purchase the output generated from the renewed plant which includes energy, capacity and emissions-free attributes as part of its goal to help power its data center.</p>
+</body></html>"""
+CEG_TICKERS = {**TICKERS, "5": {"cik_str": CEG_CIK, "ticker": "CEG", "title": "Constellation Energy Corp"}}
+SUBMISSIONS_CEG = {
+    "filings": {
+        "recent": {
+            "form": ["10-K"],
+            "accessionNumber": ["0001868275-26-000008"],
+            "filingDate": ["2026-02-20"],
+            "primaryDocument": ["ceg-10k.htm"],
+        }
+    }
+}
+
+
+def test_counterparty_purchase_from_filer_is_customer_direction():
+    # CEG 10-K: Microsoft will purchase the output of the renewed plant -> MSFT CUSTOMER_OF CEG, never CEG CUSTOMER_OF MSFT.
+    graph, evidence, clock = _world_tuple()
+    client = FakeClient({
+        "https://www.sec.gov/files/company_tickers.json": CEG_TICKERS,
+        submissions_url(CEG_CIK): SUBMISSIONS_CEG,
+        CEG_URL: CEG_10K,
+    })
+    _run(graph, evidence, client, clock, filers=("CEG",), universe=("CEG", "MSFT"))
+    edges = {graph.key_of(e) for e in graph.edges}
+    assert ("MSFT", "CEG", "CUSTOMER_OF") in edges
+    assert ("CEG", "MSFT", "CUSTOMER_OF") not in edges

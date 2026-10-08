@@ -269,8 +269,8 @@ class EdgarImportService:
         summary.edges_added += 1
         summary.new_edges.append(
             {
-                "customer": src_ticker if statement.kind == "customer" else dst_ticker,
-                "supplier": dst_ticker if statement.kind == "customer" else src_ticker,
+                "customer": src_ticker,
+                "supplier": dst_ticker,
                 "kind": statement.kind,
                 "filer": ctx.filing.ticker,
                 "percent": statement.percent,
