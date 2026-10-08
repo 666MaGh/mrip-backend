@@ -65,7 +65,7 @@ def gamma_events(current: OptionsAnalysis, previous: OptionsAnalysis | None, as_
             out.append(Observation(Kind.WALL_PROXIMITY, current.underlying, as_of, f"{MODELED_LABEL}: near modeled {side} wall", 1-distance/policy.wall_near_pct, _modeled_details({"side": side, "distance_pct": distance}), q, True))
     anomalies = current.observed.anomalies
     if anomalies:
-        out.append(Observation(Kind.UNUSUAL_OPTIONS_ACTIVITY, current.underlying, as_of, "Observed unusual options activity", min(1., len(anomalies)/policy.anomaly_cap), {"anomalies": [str(a) for a in anomalies]}, q, False))
+        out.append(Observation(Kind.UNUSUAL_OPTIONS_ACTIVITY, current.underlying, as_of, "Observed unusual options activity", min(1., len(anomalies)/policy.anomaly_cap), {"anomalies": list(anomalies)}, q, False))
     share = m.gex.zero_dte_share
     if share is not None and share >= policy.zero_dte_high:
         out.append(Observation(Kind.HIGH_ZERO_DTE, current.underlying, as_of, f"{MODELED_LABEL}: high modeled 0DTE concentration", min(1., float(share)), _modeled_details({"zero_dte_share": float(share)}), q, True))

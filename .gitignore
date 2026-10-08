@@ -102,3 +102,6 @@ backend_api_python/data/memory/
 # Docker
 # ========================
 docker-compose.override.yml
+
+# graft's local graph cache — regenerable, not committed (run `graft build`).
+/graft/

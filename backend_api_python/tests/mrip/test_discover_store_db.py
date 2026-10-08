@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 from datetime import date
 from pathlib import Path
@@ -50,3 +51,47 @@ def test_discover_store_persistence_contract():
     prior = date(2026, 9, 29)
     store.save([RankedItem(Observation(Kind.PEER_DIVERGENCE, "XYZ", prior, "prior", .5), 50, {}, ())], "rank-v1")
     assert store.recent_counts(today, days=7)[(Kind.PEER_DIVERGENCE.value, "XYZ")] == 1
+
+
+class _FakeCursor:
+    def __init__(self, log):
+        self.log = log
+
+    def execute(self, sql, params=None):
+        self.log.append(params)
+
+    def close(self):
+        pass
+
+
+class _FakeConn:
+    def __init__(self, log):
+        self.log = log
+
+    def cursor(self):
+        return _FakeCursor(self.log)
+
+    def commit(self):
+        pass
+
+
+def test_store_persists_unusual_activity_details_as_json_object():
+    from contextlib import contextmanager
+
+    from app.mrip.discover.store import DiscoverStore
+    from app.mrip.discover.types import Observation, RankedItem
+    from app.mrip.options.vol_surface import Anomaly
+
+    log: list = []
+
+    @contextmanager
+    def connect():
+        yield _FakeConn(log)
+
+    anomaly = Anomaly("SPY261016C00500000", date(2026, 10, 16), 500.0, "call", 1200.0, 100.0, 12.0)
+    obs = Observation(Kind.UNUSUAL_OPTIONS_ACTIVITY, "SPY", date(2026, 10, 8), "Observed unusual options activity", .5, {"anomalies": [anomaly]}, {"oi_status": "ok"}, False)
+    assert DiscoverStore(connect).save([RankedItem(obs, 50, {"magnitude": .5}, ())], "rank-v1") == 1
+    params = log[0]
+    details = json.loads(params[7])
+    assert details == {"anomalies": [{"contract_symbol": "SPY261016C00500000", "expiry": "2026-10-16", "strike": 500.0, "option_type": "call", "volume": 1200.0, "open_interest": 100.0, "volume_oi_ratio": 12.0}]}
+    assert json.loads(params[8]) == {"oi_status": "ok"}

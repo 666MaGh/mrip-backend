@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Any, Callable, ContextManager, Sequence
 
+from app.mrip.discover.serialize import to_jsonable
 from app.mrip.discover.types import Kind, RankedItem
 
 
@@ -36,7 +37,7 @@ class DiscoverStore:
             try:
                 for item in items:
                     obs = item.observation
-                    cur.execute("INSERT INTO mrip_discover_items (as_of,kind,subject,headline,magnitude,score,components,details,data_quality,modeled,policy_version) VALUES (%s,%s,%s,%s,%s,%s,%s::jsonb,%s::jsonb,%s::jsonb,%s,%s) ON CONFLICT (as_of,kind,subject) DO UPDATE SET headline=EXCLUDED.headline,magnitude=EXCLUDED.magnitude,score=EXCLUDED.score,components=EXCLUDED.components,details=EXCLUDED.details,data_quality=EXCLUDED.data_quality,modeled=EXCLUDED.modeled,policy_version=EXCLUDED.policy_version", (obs.as_of, obs.kind.value, obs.subject, obs.headline, obs.magnitude, item.score, json.dumps(dict(item.components)), json.dumps(dict(obs.details), default=str), json.dumps(dict(obs.data_quality), default=str), obs.modeled, policy_version))
+                    cur.execute("INSERT INTO mrip_discover_items (as_of,kind,subject,headline,magnitude,score,components,details,data_quality,modeled,policy_version) VALUES (%s,%s,%s,%s,%s,%s,%s::jsonb,%s::jsonb,%s::jsonb,%s,%s) ON CONFLICT (as_of,kind,subject) DO UPDATE SET headline=EXCLUDED.headline,magnitude=EXCLUDED.magnitude,score=EXCLUDED.score,components=EXCLUDED.components,details=EXCLUDED.details,data_quality=EXCLUDED.data_quality,modeled=EXCLUDED.modeled,policy_version=EXCLUDED.policy_version", (obs.as_of, obs.kind.value, obs.subject, obs.headline, obs.magnitude, item.score, json.dumps(dict(item.components)), json.dumps(to_jsonable(dict(obs.details))), json.dumps(to_jsonable(dict(obs.data_quality))), obs.modeled, policy_version))
                     written += 1
             finally:
                 cur.close()
