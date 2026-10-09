@@ -5,7 +5,7 @@ Rules
   options gamma block, which is kept under ``modeled`` and labelled ``MODELED / ESTIMATED``.
 - Point-in-time: every price is cut at ``as_of``; the options snapshot must be taken on or
   before the end of ``as_of`` (``OptionsSnapshotStore.latest_before``).
-- Stored data only: prices come from the first provider with stored bars (cboe, then yahoo).
+- Stored data only: one provider per symbol, the most recent stored bar (``app.mrip.prices.select``).
   No network. A missing or short history is reported as unavailable with a reason.
 - Neighbours never get a gamma block. Only the queried symbol does.
 - Discrepancies are attention flags, not signals. They never say buy or sell.
@@ -22,6 +22,7 @@ import pandas as pd
 
 from app.mrip.data.models import PriceSeries
 from app.mrip.options.analysis import MODELED_LABEL, analyze_options
+from app.mrip.prices.select import select_series
 from app.mrip.related.types import UnknownSymbol
 from app.mrip.relationships.types import Edge, EdgeStatus, Node, NodeKey, NodeType
 from app.mrip.security_regime.features import classify_security_regime, unavailable_regime
@@ -37,7 +38,6 @@ from app.mrip.stats.service import prices_to_series
 
 logger = logging.getLogger(__name__)
 
-_PROVIDERS = ("cboe", "yahoo")
 _LOOKUP_TYPES = (NodeType.COMPANY, NodeType.SECURITY)
 _TREND_SV = {
     TrendLabel.UPTREND: "uppåttrend",
@@ -82,12 +82,9 @@ class Discrepancy:
 
 
 def load_close_prices(prices: PricePort, symbol: str, as_of: date) -> pd.Series | None:
-    """Closes up to ``as_of`` from the first provider with stored bars; None when there are none."""
-    for provider in _PROVIDERS:
-        series = prices.series(provider, symbol, end=as_of)
-        if series is not None and series.bars:
-            return prices_to_series(series, as_of)
-    return None
+    """Closes up to ``as_of`` from the one provider chosen by the shared rule; None when there are none."""
+    found = select_series(prices, symbol, as_of)
+    return None if found is None else prices_to_series(found[1], as_of)
 
 
 def find_discrepancies(

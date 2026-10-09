@@ -10,6 +10,7 @@ from app.mrip.discover.detectors import DiscoverPolicy, cot_events, gamma_events
 from app.mrip.discover.ranking import RankingPolicy, rank
 from app.mrip.discover.types import Observation
 from app.mrip.options.analysis import analyze_options
+from app.mrip.prices.select import select_pair
 from app.mrip.stats.service import prices_to_series
 from app.mrip.stats.transforms import log_returns
 
@@ -27,14 +28,6 @@ class DiscoverService:
         self.graph, self.price_store, self.snapshot_store, self.discover_store = graph, price_store, snapshot_store, discover_store
         self.evidence_store, self.regime_engine, self.cot_engine = evidence_store, regime_engine, cot_engine
         self.policy, self.rank_policy = policy, rank_policy
-
-    def _series(self, symbol: str, as_of: date) -> Any:
-        """Return the first provider's price series with bars, trying cboe then yahoo."""
-        for provider in ("cboe", "yahoo"):
-            series = self.price_store.series(provider, symbol, end=as_of)
-            if series is not None and series.bars:
-                return series
-        return None
 
     def run(self, as_of: date, *, option_symbols: Sequence[str] | None = None) -> DiscoverRunSummary:
         observations: list[Observation] = []; errors: dict[str,str] = {}
@@ -70,9 +63,10 @@ class DiscoverService:
                     val=node.attributes.get("series",{}); return val.get("symbol") if isinstance(val,dict) else None
                 a,b=symbol(src),symbol(dst)
                 if not a or not b: continue
-                pa=self._series(a,as_of); pb=self._series(b,as_of)
-                if pa is None or pb is None: continue
-                obs=relationship_events(f"{a}->{b}",log_returns(prices_to_series(pa,as_of)),log_returns(prices_to_series(pb,as_of)),as_of,self.policy,edge.status.value)
+                need=self.policy.relationship_fit_days+self.policy.relationship_recent_days
+                pair=select_pair(self.price_store,a,b,as_of,min_overlap=need+1)
+                if pair is None: continue  # no common provider with enough overlap: leg unavailable, nothing mixed
+                obs=relationship_events(f"{a}->{b}",log_returns(prices_to_series(pair.left,as_of)),log_returns(prices_to_series(pair.right,as_of)),as_of,self.policy,edge.status.value)
                 if self.evidence_store:
                     from app.mrip.evidence.types import RelationshipRef
                     ref=RelationshipRef(src.key and __import__('app.mrip.relationships.types',fromlist=['NodeKey']).NodeKey(src.node_type,src.key),__import__('app.mrip.relationships.types',fromlist=['NodeKey']).NodeKey(dst.node_type,dst.key),edge.relation_type)

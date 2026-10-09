@@ -47,7 +47,9 @@ from app.mrip.security_regime.service import (
     regime_json,
 )
 from app.mrip.security_regime.types import SecurityRegime
+from app.mrip.prices.select import select_pair, select_series
 from app.mrip.stats.transforms import log_returns
+from app.mrip.stats.service import prices_to_series
 
 logger = logging.getLogger(__name__)
 
@@ -167,7 +169,6 @@ class RelatedService:
         queried_prices = self._prices_until(sym, as_of)
         if queried is None and queried_prices is None:
             raise UnknownSymbol(sym)
-        queried_returns = self._returns(queried_prices)
         queried_regime = self._regimes.classify(queried_prices, as_of)
 
         statuses = _WITH_HYPOTHESIS if include_hypothesis else _VALIDATED_ONLY
@@ -175,7 +176,7 @@ class RelatedService:
             NodeKey(queried.node_type, queried.key), max_depth=1, direction=Direction.BOTH, statuses=statuses,
         ) if queried is not None else []
         rows: list[dict[str, Any]] = []
-        neighbour_cache: dict[str, pd.Series | None] = {}  # neighbour symbol -> closes up to as_of
+        neighbour_cache: dict[str, pd.Series | None] = {}  # neighbour symbol -> own closes up to as_of (regime)
         seen: set[int] = set()
         for path in sorted(paths, key=lambda p: (p.end.node_type.value, p.end.key, p.edges[0].id)):
             edge = path.edges[0]
@@ -185,7 +186,7 @@ class RelatedService:
             seen.add(edge.id)
             role = "src" if edge.src_id == queried.id else "dst"
             rows.append(self._safe_row(
-                sym, as_of, queried, queried_returns, queried_regime, edge, neighbour, role, neighbour_cache,
+                sym, as_of, queried, queried_regime, edge, neighbour, role, neighbour_cache,
             ))
 
         return {
@@ -219,12 +220,6 @@ class RelatedService:
         """Close prices up to ``as_of`` from the first provider with stored bars; None when there are none."""
         return load_close_prices(self._prices, symbol, as_of)
 
-    @staticmethod
-    def _returns(prices: pd.Series | None) -> pd.Series | None:
-        if prices is None or len(prices) < 2:
-            return None
-        return log_returns(prices)
-
     # -- rows -------------------------------------------------------------------
 
     def _safe_row(
@@ -232,7 +227,6 @@ class RelatedService:
         sym: str,
         as_of: date,
         queried: Node | None,
-        queried_returns: pd.Series | None,
         queried_regime: SecurityRegime,
         edge: Edge,
         neighbour: Node,
@@ -240,7 +234,7 @@ class RelatedService:
         cache: dict[str, pd.Series | None],
     ) -> dict[str, Any]:
         try:
-            return self._row(sym, as_of, queried, queried_returns, queried_regime, edge, neighbour, role, cache)
+            return self._row(sym, as_of, queried, queried_regime, edge, neighbour, role, cache)
         except Exception:  # one neighbour must not fail the whole response
             logger.exception("related row failed for edge %s", edge.id)
             failed = _unavailable("internt fel vid beräkning av raden")
@@ -254,7 +248,6 @@ class RelatedService:
         sym: str,
         as_of: date,
         queried: Node | None,
-        queried_returns: pd.Series | None,
         queried_regime: SecurityRegime,
         edge: Edge,
         neighbour: Node,
@@ -273,9 +266,8 @@ class RelatedService:
         else:
             if n_sym not in cache:
                 cache[n_sym] = self._prices_until(n_sym, as_of)
-            neighbour_prices = cache[n_sym]
-            neighbour_regime = self._neighbour_regime(n_sym, as_of, neighbour_prices)
-            divergence, beta = self._divergence(sym, queried_returns, n_sym, self._returns(neighbour_prices))
+            neighbour_regime = self._neighbour_regime(n_sym, as_of, cache[n_sym])
+            divergence, beta = self._divergence(sym, n_sym, as_of)
 
         sigma = divergence.get("sigma")
         signal = signal_for(
@@ -339,23 +331,31 @@ class RelatedService:
         }
         return lag, direction
 
-    def _divergence(
-        self, sym: str, queried_returns: pd.Series | None, n_sym: str, neighbour_returns: pd.Series | None,
-    ) -> tuple[dict[str, Any], float | None]:
+    def _divergence(self, sym: str, n_sym: str, as_of: date) -> tuple[dict[str, Any], float | None]:
+        """Divergence of the pair on ONE shared provider (both legs from the same source, or unavailable)."""
         window = self._policy.relationship_recent_days
-        if queried_returns is None:
-            return {**_unavailable(f"saknar kurshistorik för {sym}"), "subject": "neighbour"}, None
-        if neighbour_returns is None:
-            return {**_unavailable(f"ingen lagrad kurs för {n_sym}"), "subject": "neighbour"}, None
-        fit = relationship_divergence(queried_returns, neighbour_returns, self._policy)
+        need = self._policy.relationship_fit_days + window
+        pair = select_pair(self._prices, sym, n_sym, as_of, min_overlap=need + 1)
+        if pair is None:
+            if select_series(self._prices, sym, as_of) is None:
+                return {**_unavailable(f"saknar kurshistorik för {sym}"), "subject": "neighbour"}, None
+            if select_series(self._prices, n_sym, as_of) is None:
+                return {**_unavailable(f"ingen lagrad kurs för {n_sym}"), "subject": "neighbour"}, None
+            if select_pair(self._prices, sym, n_sym, as_of, min_overlap=1) is None:
+                return {**_unavailable("olika kurskällor"), "subject": "neighbour"}, None
+            return {**_unavailable(f"för kort historik: behöver {need} gemensamma avkastningar"),
+                    "subject": "neighbour"}, None
+        fit = relationship_divergence(
+            log_returns(prices_to_series(pair.left, as_of)), log_returns(prices_to_series(pair.right, as_of)), self._policy,
+        )
         if fit is None:
-            need = self._policy.relationship_fit_days + window
             return {**_unavailable(f"för kort historik: behöver {need} gemensamma avkastningar"),
                     "subject": "neighbour"}, None
         beta, z = fit
         return {
             "status": "available", "subject": "neighbour", "reference": "queried",
             "sigma": round(z, 4), "beta": round(beta, 6), "window_days": window, "reason": None,
+            "price_provider": pair.provider,
         }, beta
 
 

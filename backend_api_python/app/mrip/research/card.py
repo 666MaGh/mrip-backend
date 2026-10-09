@@ -46,6 +46,7 @@ from app.mrip.forecast.types import ForecastProvider, ForecastRequest, ForecastU
 from app.mrip.options.analysis import analyze_options
 from app.mrip.outcomes.reliability import RELIABILITY_VERSION, UNDERSIZED, forecast_rows, insufficient
 from app.mrip.outcomes.types import PredictionType
+from app.mrip.prices.select import select_pair, select_series
 from app.mrip.relationships.types import DEFAULT_TRAVERSAL_DEPTH, Direction, Node, NodeKey, NodeType, Path
 from app.mrip.stats.service import prices_to_series
 from app.mrip.stats.transforms import log_returns
@@ -125,12 +126,8 @@ class ResearchCardService:
     # -- lookups ----------------------------------------------------------------
 
     def _series(self, symbol: str, as_of: date) -> tuple[str, Any] | None:
-        """First stored series with bars for cboe, then yahoo (same order as Discover)."""
-        for provider in ("cboe", "yahoo"):
-            series = self._prices.series(provider, symbol, end=as_of)
-            if series is not None and series.bars:
-                return provider, series
-        return None
+        """One provider per symbol: the most recent stored bar on or before ``as_of`` (shared rule)."""
+        return select_series(self._prices, symbol, as_of)
 
     def _security_node(self, symbol: str) -> Node | None:
         for node_type in (NodeType.COMPANY, NodeType.SECURITY):
@@ -325,13 +322,21 @@ class ResearchCardService:
         a, b = _symbol(src), _symbol(dst)
         if a is None or b is None:
             return unavailable("primary edge has no price series declared on its nodes")
-        pa, pb = self._series(a, as_of), self._series(b, as_of)
-        if pa is None or pb is None:
+        need = self._policy.relationship_fit_days + self._policy.relationship_recent_days
+        if self._series(a, as_of) is None or self._series(b, as_of) is None:
             return unavailable(f"no stored price series for {a} or {b}")
+        pair = select_pair(self._prices, a, b, as_of, min_overlap=need + 1)
+        if pair is None:
+            if select_pair(self._prices, a, b, as_of, min_overlap=1) is None:
+                return unavailable("olika kurskällor: inget gemensamt prisprovider som har båda benen")
+            return unavailable(
+                f"insufficient history: need {need} aligned returns on one common provider",
+                inputs=(f"price_store:{a}", f"price_store:{b}"), versions=(self._policy.version,),
+            )
         fit = relationship_divergence(
-            log_returns(prices_to_series(pa[1], as_of)), log_returns(prices_to_series(pb[1], as_of)), self._policy,
+            log_returns(prices_to_series(pair.left, as_of)), log_returns(prices_to_series(pair.right, as_of)), self._policy,
         )
-        inputs = (f"price_store:{pa[0]}:{a}", f"price_store:{pb[0]}:{b}")
+        inputs = (f"price_store:{pair.provider}:{a}", f"price_store:{pair.provider}:{b}")
         versions = (self._policy.version,)
         if fit is None:
             return unavailable(

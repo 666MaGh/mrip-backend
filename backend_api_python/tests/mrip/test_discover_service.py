@@ -75,7 +75,7 @@ def test_peer_items_receive_universe_liquidity_percentile():
     assert peers and outlier.observation.liquidity == 1.0
 
 
-def test_relationship_legs_fall_back_to_yahoo_and_prefer_cboe():
+def test_relationship_legs_use_one_provider_per_pair():
     from datetime import timedelta
     from types import SimpleNamespace
 
@@ -108,8 +108,11 @@ def test_relationship_legs_fall_back_to_yahoo_and_prefer_cboe():
     assert ("yahoo", "NVDA") in prices.calls and ("yahoo", "SMH") in prices.calls
     assert "relationships" not in summary.errors
 
+    # Both providers hold both legs: the shared pair rule picks ONE of them (tie on the latest bar -> yahoo),
+    # never a per-leg mix. The 40-bar history is below the fit gate, so the pair is not used here.
     both = {**yahoo_only, ("cboe", "NVDA"): bars([100.] * 40), ("cboe", "SMH"): bars([50.] * 40)}
     prices = Prices(both)
     service = DiscoverService(graph=RelationshipGraph(), price_store=prices, snapshot_store=None, discover_store=Store())
-    service.run(date(2026, 2, 9), option_symbols=[])
-    assert ("yahoo", "NVDA") not in prices.calls and ("yahoo", "SMH") not in prices.calls
+    summary = service.run(date(2026, 2, 9), option_symbols=[])
+    assert "relationships" not in summary.errors
+    assert ("cboe", "NVDA") in prices.calls and ("yahoo", "NVDA") in prices.calls

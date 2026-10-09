@@ -18,6 +18,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import pandas as pd  # noqa: E402
 
 from app.mrip.discover.detectors import DiscoverPolicy, relationship_events  # noqa: E402
+from app.mrip.prices.select import select_pair  # noqa: E402
 from app.mrip.prices.store import PriceStore  # noqa: E402
 from app.mrip.stats.correlation import lead_lag  # noqa: E402
 from app.mrip.relationships.graph import RelationshipGraph  # noqa: E402
@@ -44,13 +45,12 @@ def _find_validated_edge(graph: RelationshipGraph):
     return None
 
 
-def _load_returns(price_store: PriceStore, symbol: str, as_of: date) -> tuple[pd.Series, str]:
-    # Same provider order as DiscoverService._series: cboe first, then yahoo.
-    for provider in ("cboe", "yahoo"):
-        series = price_store.series(provider, symbol, end=as_of)
-        if series is not None and series.bars:
-            return log_returns(prices_to_series(series, as_of)), provider
-    raise SystemExit(f"no price bars for {symbol}")
+def _load_pair(price_store: PriceStore, src: str, dst: str, as_of: date) -> tuple[pd.Series, pd.Series, str]:
+    # Same rule as DiscoverService: one provider for both legs (shared helper in app.mrip.prices.select).
+    pair = select_pair(price_store, src, dst, as_of, min_overlap=DiscoverPolicy().relationship_fit_days + 1)
+    if pair is None:
+        raise SystemExit(f"no common price provider with enough overlap for {src}/{dst}")
+    return (log_returns(prices_to_series(pair.left, as_of)), log_returns(prices_to_series(pair.right, as_of)), pair.provider)
 
 
 def _show(label: str, observations) -> None:
@@ -69,13 +69,12 @@ def main() -> int:
         return 1
 
     prices = PriceStore(connect)
-    src_raw, src_provider = _load_returns(prices, SRC_SYMBOL, date.today())
-    dst_raw, dst_provider = _load_returns(prices, DST_SYMBOL, date.today())
+    src_raw, dst_raw, provider = _load_pair(prices, SRC_SYMBOL, DST_SYMBOL, date.today())
     src, dst = align(src_raw, dst_raw)
     as_of = src.index[-1].date()
     policy = DiscoverPolicy()
     print(f"edge id={edge.id} status={edge.status.value} pairs={len(src)} as_of={as_of} "
-          f"providers={src_provider}/{dst_provider} fit_gate={policy.relationship_fit_days}+{policy.relationship_recent_days}")
+          f"provider={provider} fit_gate={policy.relationship_fit_days}+{policy.relationship_recent_days}")
 
     subject = f"{SRC_SYMBOL}->{DST_SYMBOL}"
     sigma_src, sigma_dst = float(src.std(ddof=1)), float(dst.std(ddof=1))

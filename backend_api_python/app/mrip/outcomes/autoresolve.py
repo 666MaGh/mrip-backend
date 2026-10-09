@@ -13,9 +13,9 @@ from datetime import date
 from typing import Any
 
 from app.mrip.data.gateway import DataUnavailable
-from app.mrip.outcomes.autolog import select_series
 from app.mrip.outcomes.service import OutcomeService
 from app.mrip.outcomes.store import PredictionStore
+from app.mrip.prices.select import select_series
 
 
 class StoredPriceGateway:

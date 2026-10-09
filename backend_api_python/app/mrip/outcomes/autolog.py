@@ -47,6 +47,7 @@ from app.mrip.outcomes import resolve
 from app.mrip.outcomes.predictions import forecast_prediction
 from app.mrip.outcomes.store import PredictionStore
 from app.mrip.outcomes.types import HorizonKind, NewPrediction, PredictionType
+from app.mrip.prices.select import select_series
 from app.mrip.relationships.types import NodeType
 from app.mrip.stats.service import prices_to_series
 
@@ -59,25 +60,6 @@ ATTENTION_WINDOW = 252
 ATTENTION_RULE = "median(|h-day return|) over last 252 overlapping returns ending on the data date"
 FORECAST_HORIZON_DAYS = (5, 21, 63, 126, 252)
 ALERT_HORIZONS = (HorizonKind.W1, HorizonKind.M1)
-# One provider per symbol: the one whose latest bar is most recent (ties: yahoo first). yahoo closes are
-# dividend-adjusted and cboe closes are not, and cboe stops earlier, so mixing them inside one prediction
-# would put dividend gaps into returns. The choice is recorded in lineage.price_provider.
-PRICE_PROVIDERS = ("yahoo", "cboe")
-
-
-def select_series(store: Any, symbol: str, end: date | None = None) -> tuple[str, PriceSeries] | None:
-    """The stored series with the most recent bar on or before ``end`` (see PRICE_PROVIDERS)."""
-    best: tuple[str, PriceSeries, date] | None = None
-    for provider in PRICE_PROVIDERS:
-        series = store.series(provider, symbol, end=end)
-        if series is None or not series.bars:
-            continue
-        last = series.bars[-1].ts
-        last_day = last.date() if isinstance(last, datetime) else last
-        if best is None or last_day > best[2]:
-            best = (provider, series, last_day)
-    return None if best is None else (best[0], best[1])
-
 KIND_LABEL = {
     PredictionType.FORECAST: "FORECAST_SCENARIO",
     PredictionType.DISCOVER_ITEM: "DISCOVER_ITEM",
