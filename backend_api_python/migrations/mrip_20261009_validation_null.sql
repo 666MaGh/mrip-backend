@@ -1,0 +1,17 @@
+CREATE TABLE IF NOT EXISTS mrip_validation_null (
+    id BIGSERIAL PRIMARY KEY,
+    sector VARCHAR(80) NOT NULL,
+    as_of DATE NOT NULL,
+    policy_version VARCHAR(60) NOT NULL,
+    n INTEGER NOT NULL,
+    pairs_used INTEGER NOT NULL,
+    seed BIGINT NOT NULL,
+    p05 DOUBLE PRECISION NOT NULL,
+    p90 DOUBLE PRECISION NOT NULL,
+    p95 DOUBLE PRECISION NOT NULL,
+    p99 DOUBLE PRECISION NOT NULL,
+    mean DOUBLE PRECISION NOT NULL,
+    std DOUBLE PRECISION NOT NULL,
+    computed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (sector, as_of, policy_version, n, seed)
+);

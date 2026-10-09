@@ -168,6 +168,22 @@ class RelationshipGraph:
             finally:
                 cur.close()
 
+    def list_priced_nodes(self) -> list[Node]:
+        """Nodes that declare a price series (``attributes.series.symbol``), of any node type.
+
+        Sector membership for validation control is read from the ``sector`` attribute.
+        """
+        with self._connect() as conn:
+            cur = conn.cursor()
+            try:
+                cur.execute(
+                    "SELECT id, node_type, node_key, name, attributes FROM mrip_rel_nodes "
+                    "WHERE attributes -> 'series' IS NOT NULL ORDER BY id"
+                )
+                return [_node(row) for row in cur.fetchall()]
+            finally:
+                cur.close()
+
     def get_node_by_id(self, node_id: int) -> Node | None:
         """Return a node by its database identifier."""
         with self._connect() as conn:

@@ -5,7 +5,9 @@ import pytest
 
 from app.mrip.evidence.types import Stance
 from app.mrip.relationships.types import RelationType
-from app.mrip.stats.validate import ValidationPolicy, Verdict, validate_relationship
+from app.mrip.stats.validate import POLICY_V0, ValidationPolicy, Verdict, validate_relationship
+
+# These tests pin the v0 rules (market-only control, no null gate); v1 is covered in test_stats_validate_v1.py.
 
 N = 700
 
@@ -22,10 +24,10 @@ def leading_pair(sign=1.0, lag=2, seed=0):
 
 def test_stable_leading_relationship_with_expected_sign_is_validated():
     x, y = leading_pair()
-    res = validate_relationship(x, y, expected_sign=1, relation_type=RelationType.LEADS, market=noise(9))
+    res = validate_relationship(x, y, expected_sign=1, relation_type=RelationType.LEADS, market=noise(9), policy=POLICY_V0)
     assert res.verdict is Verdict.VALIDATED and res.stance is Stance.SUPPORT
     assert res.metrics["best_lag"] == 2 and res.metrics["direction"] == "x_leads"
-    assert res.metrics["oos_consistency"] >= 0.6 and res.policy_version == "v0-uncalibrated"
+    assert res.metrics["oos_consistency"] >= 0.6 and res.policy_version == "v0-uncalibrated"  # v0 rules
     assert res.metrics["n_obs"] == N - 2 and res.metrics["partial_p"] < 0.05  # two rows lost to the lag
 
 
@@ -38,7 +40,7 @@ def test_significant_effect_with_the_wrong_sign_is_rejected():
 
 def test_matching_negative_sign_validates():
     x, y = leading_pair(sign=-1.0)
-    assert validate_relationship(x, y, expected_sign=-1).verdict is Verdict.VALIDATED
+    assert validate_relationship(x, y, expected_sign=-1, policy=POLICY_V0).verdict is Verdict.VALIDATED
 
 
 def test_independent_series_stay_inconclusive_never_rejected():
@@ -54,19 +56,19 @@ def test_too_little_data_is_inconclusive():
 
 def test_leads_requires_x_to_lead_and_lags_requires_y_to_lead():
     x, y = leading_pair()  # x leads y
-    assert validate_relationship(x, y, relation_type=RelationType.LEADS).verdict is Verdict.VALIDATED
-    wrong = validate_relationship(x, y, relation_type=RelationType.LAGS)
+    assert validate_relationship(x, y, relation_type=RelationType.LEADS, policy=POLICY_V0).verdict is Verdict.VALIDATED
+    wrong = validate_relationship(x, y, relation_type=RelationType.LAGS, policy=POLICY_V0)
     assert wrong.verdict is Verdict.INCONCLUSIVE and any("LAGS not confirmed" in r for r in wrong.reasons)
-    assert validate_relationship(y, x, relation_type=RelationType.LAGS).verdict is Verdict.VALIDATED
-    flipped = validate_relationship(y, x, relation_type=RelationType.LEADS)
+    assert validate_relationship(y, x, relation_type=RelationType.LAGS, policy=POLICY_V0).verdict is Verdict.VALIDATED
+    flipped = validate_relationship(y, x, relation_type=RelationType.LEADS, policy=POLICY_V0)
     assert flipped.verdict is Verdict.INCONCLUSIVE and any("LEADS not confirmed" in r for r in flipped.reasons)
 
 
 def test_relationship_explained_by_the_market_does_not_survive_control():
     m = noise(200)
     x, y = m + noise(201, scale=0.7), m + noise(202, scale=0.7)
-    assert validate_relationship(x, y).verdict is Verdict.VALIDATED  # looks real without a control
-    controlled = validate_relationship(x, y, market=m)
+    assert validate_relationship(x, y, policy=POLICY_V0).verdict is Verdict.VALIDATED  # looks real without a control
+    controlled = validate_relationship(x, y, market=m, policy=POLICY_V0)
     assert controlled.verdict is Verdict.INCONCLUSIVE
     assert any("controlling for the market" in r for r in controlled.reasons)
 
@@ -75,7 +77,7 @@ def test_relationship_that_flips_over_time_fails_out_of_sample_consistency():
     x = noise(300)
     y = 0.5 * x.shift(1) + noise(301, scale=0.8)
     y.iloc[N // 2 :] = (-0.5 * x.shift(1).iloc[N // 2 :]).to_numpy() + noise(302, N - N // 2, 0.8).to_numpy()
-    res = validate_relationship(x, y)
+    res = validate_relationship(x, y, policy=POLICY_V0)
     assert res.verdict is not Verdict.VALIDATED
 
 
@@ -92,7 +94,7 @@ def test_result_is_deterministic_and_metrics_are_json_friendly():
     import json
 
     x, y = leading_pair()
-    a = validate_relationship(x, y, expected_sign=1, market=noise(9))
-    b = validate_relationship(x, y, expected_sign=1, market=noise(9))
+    a = validate_relationship(x, y, expected_sign=1, market=noise(9), policy=POLICY_V0)
+    b = validate_relationship(x, y, expected_sign=1, market=noise(9), policy=POLICY_V0)
     assert a == b
     json.dumps(a.metrics)  # raises if a numpy type leaks through

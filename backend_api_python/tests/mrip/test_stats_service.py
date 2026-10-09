@@ -72,6 +72,8 @@ def env():
     graph.upsert_node(NodeType.COMMODITY, "copper", "Copper", {"series": {"symbol": "CPR"}})
     graph.upsert_node(NodeType.SECURITY, "miner", "Miner", {"series": {"symbol": "MNR"}})
     graph.upsert_node(NodeType.THEME, "ai", "AI")  # no series declared
+    for sym in background_symbols():
+        graph.upsert_node(NodeType.SECURITY, sym, sym, {"series": {"symbol": sym}})
     src, dst = NodeKey(NodeType.COMMODITY, "copper"), NodeKey(NodeType.SECURITY, "miner")
     graph.add_edge(src, dst, RelationType.LEADS, source="test", attributes={"expected_sign": 1})
     return graph, store, RelationshipRef(src, dst, RelationType.LEADS)
@@ -84,10 +86,18 @@ def make_validator(env, series):
     return RelationshipValidator(graph, store, FakeGateway(series)), graph, store, ref
 
 
+def background_symbols():
+    """Unsectored priced names: they make the random-pair null pool large enough for validation v1."""
+    return [f"B{i:02d}" for i in range(40)]
+
+
 def leading_series(sign=1.0):
     x = noise(1)
     y = sign * 0.5 * x.shift(2) + noise(2, scale=0.8)
-    return {"CPR": to_prices(x, "CPR"), "MNR": to_prices(y, "MNR"), "SPY": to_prices(noise(3), "SPY")}
+    series = {"CPR": to_prices(x, "CPR"), "MNR": to_prices(y, "MNR"), "SPY": to_prices(noise(3), "SPY")}
+    for i, sym in enumerate(background_symbols()):
+        series[sym] = to_prices(noise(500 + i), sym)
+    return series
 
 
 @DB
@@ -102,8 +112,8 @@ def test_validated_relationship_updates_status_and_records_provenance(env):
     assert outcome.result.verdict.value == "validated" and outcome.status_changed
     assert outcome.edge.status is EdgeStatus.VALIDATED and graph.current_version() == version_before + 1
     (ev,) = store.list_evidence(ref)
-    assert (ev.stance, ev.source_type, ev.assessed_by) == (Stance.SUPPORT, SourceType.STATISTICAL_TEST, "stats:v0-uncalibrated")
-    assert ev.source_uri == "mrip://validation/v0-uncalibrated/copper->miner/LEADS"
+    assert (ev.stance, ev.source_type, ev.assessed_by) == (Stance.SUPPORT, SourceType.STATISTICAL_TEST, "stats:validation-v1-uncalibrated")
+    assert ev.source_uri == "mrip://validation/validation-v1-uncalibrated/copper->miner/LEADS"
     roles = {p["role"]: p["symbol"] for p in ev.attributes["series"]}
     assert roles == {"src": "CPR", "dst": "MNR", "market": "SPY"}
     assert '"best_lag": 2' in ev.excerpt
