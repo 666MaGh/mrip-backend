@@ -13,8 +13,14 @@ from typing import Any, Mapping
 
 
 class PredictionType(str, Enum):
-    FORECAST = "forecast"
+    FORECAST = "forecast"  # logged as FORECAST_SCENARIO by the automatic logger
     OPTIONS_EVENT = "options_event"
+    DISCOVER_ITEM = "discover_item"  # automatic logger; attention event with optional direction
+    RELATED_SIGNAL = "related_signal"  # automatic logger; up/down signal of the related service
+
+
+# Types whose outcome is judged against a benchmark (excess return), so resolution needs its prices.
+BENCHMARK_REQUIRED_TYPES = frozenset({PredictionType.DISCOVER_ITEM, PredictionType.RELATED_SIGNAL})
 
 
 class HorizonKind(str, Enum):

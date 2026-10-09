@@ -20,9 +20,11 @@ Sections (each independent; missing inputs give ``status: "unavailable"``):
   return from an equal-weight ensemble of the naive and empirical baselines on stored
   prices. Bear = P25, Base = P50, Bull = P75, P10 and P90 bound the range. This is a
   scenario distribution, NOT a price target. Prices are last close times (1 + return).
-- ``forecast_confidence``: unavailable unless a fitted forecast calibration is stored.
-- ``historical_reliability``: unavailable until resolved forecast outcomes exist and a
-  reliability metric is defined; the count of resolved outcomes is reported.
+- ``forecast_confidence``: a fitted forecast calibration when one is stored; otherwise the observed
+  12-month quantile coverage from resolved outcomes once n >= 30 (``outcomes.reliability``);
+  otherwise unavailable with the reason ``n=<k> < 30``.
+- ``historical_reliability``: the population 12-month quantile coverage (all securities, n >= 30),
+  with the count of this security's resolved outcomes; unavailable with ``n=<k> < 30`` otherwise.
 
 LAYA is never used here: every number comes from deterministic code or statistics.
 Trading is disabled; nothing in this module places orders.
@@ -42,6 +44,7 @@ from app.mrip.forecast.baselines import NaiveBaseline, StatisticalBaseline
 from app.mrip.forecast.ensemble import EnsembleProvider
 from app.mrip.forecast.types import ForecastProvider, ForecastRequest, ForecastUnavailable, Horizon
 from app.mrip.options.analysis import analyze_options
+from app.mrip.outcomes.reliability import RELIABILITY_VERSION, UNDERSIZED, forecast_rows, insufficient
 from app.mrip.outcomes.types import PredictionType
 from app.mrip.relationships.types import DEFAULT_TRAVERSAL_DEPTH, Direction, Node, NodeKey, NodeType, Path
 from app.mrip.stats.service import prices_to_series
@@ -58,6 +61,11 @@ DIVERGENCE_DEFINITION = (
     "(Discover relationship divergence, same fit and policy)."
 )
 FORECAST_VERSION_TAG = "potential-12m-v0-uncalibrated"
+RELIABILITY_HORIZON = "M12"
+COVERAGE_DEFINITION = (
+    "Share of resolved 12-month forecast outcomes at or below each predicted quantile (P10..P90) "
+    "against the nominal level. Available only with at least 30 resolved outcomes."
+)
 ENSEMBLE_WEIGHTS = (0.5, 0.5)
 SECTION_ORDER = (
     "security", "theme", "relationship", "relationship_confidence", "evidence", "divergence",
@@ -415,27 +423,64 @@ class ResearchCardService:
             versions=(result.provider_version, FORECAST_VERSION_TAG),
         )
 
+    def _m12_coverage(self) -> dict[str, Any] | None:
+        """Population reliability row for the 12-month forecast scenarios; None when no outcome store."""
+        if self._outcomes is None:
+            return None
+        rows = [r for r in forecast_rows(self._outcomes.resolved_pairs(PredictionType.FORECAST)) if r["horizon"] == RELIABILITY_HORIZON]
+        if rows:
+            return rows[0]
+        return {"horizon": RELIABILITY_HORIZON, "n": 0, "backfilled_n": 0, "status": UNDERSIZED,
+                "reason": insufficient(0), "coverage": None}
+
     def _forecast_confidence(self) -> SectionOutcome:
-        if self._calibration is None:
+        if self._calibration is not None:
+            fitted = load_forecast_calibration(self._calibration)
+            if fitted is not None:
+                return SectionOutcome(
+                    body={
+                        "status": "available", "calibration_version": fitted.version, "fit_as_of": _iso(fitted.fit_as_of),
+                        "n_total": fitted.n_total,
+                        "note": "segment-level quantile shifts; no scalar confidence is published",
+                    },
+                    inputs=("calibration_store:FORECAST_QUANTILE_SHIFT",), versions=(fitted.version,),
+                )
+        row = self._m12_coverage()
+        inputs = ("outcome_store:FORECAST",)
+        if row is not None and row["status"] == "available":
+            return SectionOutcome(
+                body={
+                    "status": "available", "horizon": RELIABILITY_HORIZON, "n": row["n"], "backfilled_n": row["backfilled_n"],
+                    "coverage": row["coverage"], "definition": COVERAGE_DEFINITION,
+                    "note": "observed coverage of the predicted quantiles; no scalar confidence is published",
+                },
+                inputs=inputs, versions=(RELIABILITY_VERSION,),
+            )
+        if row is None and self._calibration is None:
             return unavailable("no calibration store configured; forecast is uncalibrated")
-        fitted = load_forecast_calibration(self._calibration)
-        if fitted is None:
-            return unavailable("no fitted forecast calibration stored; forecast is uncalibrated")
-        return SectionOutcome(
-            body={
-                "status": "available", "calibration_version": fitted.version, "fit_as_of": _iso(fitted.fit_as_of),
-                "n_total": fitted.n_total,
-                "note": "segment-level quantile shifts; no scalar confidence is published",
-            },
-            inputs=("calibration_store:FORECAST_QUANTILE_SHIFT",), versions=(fitted.version,),
+        reason = row["reason"] if row is not None else "no outcome store configured"
+        missing = "no calibration store configured" if self._calibration is None else "no fitted forecast calibration stored"
+        return unavailable(
+            f"{reason} resolved {RELIABILITY_HORIZON} forecast outcomes; {missing}; forecast is uncalibrated",
+            inputs=inputs, n_resolved_outcomes=row["n"] if row else 0,
         )
 
     def _reliability(self, sym: str) -> SectionOutcome:
-        if self._outcomes is None:
+        row = self._m12_coverage()
+        if row is None:
             return unavailable("no outcome store configured")
-        resolved = self._outcomes.resolved_pairs(PredictionType.FORECAST, subject=sym)
-        if not resolved:
-            return unavailable(f"no resolved forecast outcomes for {sym}", inputs=("outcome_store:FORECAST",),
-                               n_resolved_outcomes=0)
-        return unavailable("reliability metric not defined in v0", inputs=("outcome_store:FORECAST",),
-                           n_resolved_outcomes=len(resolved))
+        inputs = ("outcome_store:FORECAST",)
+        subject_n = len(self._outcomes.resolved_pairs(PredictionType.FORECAST, subject=sym))
+        if row["status"] != "available":
+            return unavailable(
+                f"{row['reason']} resolved {RELIABILITY_HORIZON} forecast outcomes (all securities)",
+                inputs=inputs, versions=(RELIABILITY_VERSION,), n_resolved_outcomes=row["n"], subject_n=subject_n,
+            )
+        return SectionOutcome(
+            body={
+                "status": "available", "horizon": RELIABILITY_HORIZON, "definition": COVERAGE_DEFINITION,
+                "n": row["n"], "backfilled_n": row["backfilled_n"], "coverage": row["coverage"],
+                "subject_n": subject_n, "scope": "all securities",
+            },
+            inputs=inputs, versions=(RELIABILITY_VERSION,),
+        )

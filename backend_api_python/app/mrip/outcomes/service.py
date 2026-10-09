@@ -18,7 +18,7 @@ from app.mrip.data.gateway import DataUnavailable, FinancialDataGateway
 from app.mrip.data.models import PriceSeries
 from app.mrip.outcomes import resolve
 from app.mrip.outcomes.store import PredictionStore
-from app.mrip.outcomes.types import HorizonKind, Outcome, Prediction, PredictionType
+from app.mrip.outcomes.types import BENCHMARK_REQUIRED_TYPES, Outcome, OutcomeError, Prediction, PredictionType
 
 _ET = ZoneInfo("America/New_York")
 
@@ -39,14 +39,24 @@ class ResolutionReport:
     resolved: list[Outcome] = field(default_factory=list)
     still_pending: list[tuple[int, str]] = field(default_factory=list)
     unavailable: list[tuple[int, str]] = field(default_factory=list)
+    would_resolve: list[int] = field(default_factory=list)  # dry run only: ids that would have been resolved
+    examined: int = 0
+    resolved_by_type: dict[str, int] = field(default_factory=dict)
 
 
 class OutcomeService:
     def __init__(self, store: PredictionStore, gateway: FinancialDataGateway) -> None:
         self._store, self._gateway = store, gateway
 
-    def resolve_pending(self, *, as_of: date | None = None, subject: str | None = None) -> ResolutionReport:
-        """Resolve every pending prediction whose window is observable in data up to ``as_of``."""
+    def resolve_pending(
+        self, *, as_of: date | None = None, subject: str | None = None, limit: int | None = None, dry_run: bool = False,
+    ) -> ResolutionReport:
+        """Resolve pending predictions whose window is observable in data up to ``as_of``.
+
+        Predictions whose target bars are not yet observed stay pending; predictions whose prices
+        (or, for benchmark-judged types, benchmark prices) are missing are left unresolved and
+        listed with a reason. Nothing is guessed. ``dry_run`` computes but writes nothing.
+        """
         report = ResolutionReport()
         cache: dict[str, tuple[PriceSeries, pd.DataFrame] | None] = {}
 
@@ -61,6 +71,9 @@ class OutcomeService:
             return cache[symbol]
 
         for prediction in self._store.pending(subject=subject):
+            if limit is not None and report.examined >= limit:
+                break
+            report.examined += 1
             asset = bars_for(prediction.subject)
             if asset is None or asset[1].empty:
                 report.unavailable.append((prediction.id, f"no price data for {prediction.subject}"))
@@ -77,22 +90,38 @@ class OutcomeService:
             if window is None:
                 report.still_pending.append((prediction.id, "target date not yet observed in the data"))
                 continue
-            report.resolved.append(self._resolve(prediction, window, asset, bars_for))
+            bench_return: float | None = None
+            bench_frame_ok = False
+            if prediction.benchmark:
+                bench = bars_for(prediction.benchmark)
+                if bench is not None and not bench[1].empty:
+                    bench_return = resolve.benchmark_return(bench[1], window)
+                    bench_frame_ok = bench_return is not None
+            if prediction.prediction_type in BENCHMARK_REQUIRED_TYPES and not bench_frame_ok:
+                report.unavailable.append((prediction.id, f"benchmark prices missing for {prediction.benchmark}"))
+                continue
+            if dry_run:
+                report.would_resolve.append(prediction.id)
+                continue
+            report.resolved.append(self._resolve(prediction, window, asset, bars_for, bench_return))
+            t = prediction.prediction_type.value
+            report.resolved_by_type[t] = report.resolved_by_type.get(t, 0) + 1
         return report
 
     # -- internals --------------------------------------------------------
 
-    def _resolve(self, p: Prediction, window: resolve.Window, asset: tuple[PriceSeries, pd.DataFrame], bars_for: Any) -> Outcome:
+    def _resolve(
+        self, p: Prediction, window: resolve.Window, asset: tuple[PriceSeries, pd.DataFrame], bars_for: Any,
+        bench_return: float | None,
+    ) -> Outcome:
         series, frame = asset
         stats = resolve.path_stats(frame, window)
-        bench_return = None
         provenance: dict[str, Any] = {"subject": _prov(series, frame)}
-        if p.benchmark:
+        if p.benchmark and bench_return is not None:
             bench = bars_for(p.benchmark)
-            if bench is not None and not bench[1].empty:
-                bench_return = resolve.benchmark_return(bench[1], window)
+            if bench is not None:
                 provenance["benchmark"] = _prov(bench[0], bench[1])
-        measures = self._measures(p, window, frame, stats)
+        measures = self._measures(p, window, frame, stats, bench_return)
         measures["path"] = {"n_bars": stats.n_bars, "excursions_from": stats.excursions_from, "kind": p.horizon_kind.value}
         return self._store.record_outcome(
             p.id,
@@ -108,13 +137,18 @@ class OutcomeService:
             data_provenance=provenance,
         )
 
-    def _measures(self, p: Prediction, window: resolve.Window, frame: pd.DataFrame, stats: resolve.PathStats) -> dict[str, Any]:
+    def _measures(
+        self, p: Prediction, window: resolve.Window, frame: pd.DataFrame, stats: resolve.PathStats,
+        bench_return: float | None = None,
+    ) -> dict[str, Any]:
         if p.prediction_type is PredictionType.FORECAST:
             quantiles = {float(q): float(v) for q, v in p.payload["quantiles"].items()}
             return {
                 "quantile_hits": {str(q): stats.actual_return <= v for q, v in sorted(quantiles.items())},
                 "predicted_median": quantiles.get(0.5),
             }
+        if p.prediction_type in BENCHMARK_REQUIRED_TYPES:
+            return _benchmark_measures(p, stats, bench_return)
         walls: dict[str, str | None] = {}
         details: dict[str, Any] = {}
         for side in ("call", "put"):
@@ -157,6 +191,29 @@ class OutcomeService:
         else:
             measures["gamma_regime_outcome"] = {"regime": p.payload.get("regime"), "note": "no ATM IV logged"}
         return measures
+
+
+def _benchmark_measures(p: Prediction, stats: resolve.PathStats, bench_return: float | None) -> dict[str, Any]:
+    """Attention hit (|move| above the logged trailing median) and direction hit (excess return sign).
+
+    Both are deterministic from the logged payload and observed prices. A direction hit is only
+    defined when the prediction carries ``direction`` up/down; ties (excess == 0) are misses.
+    """
+    if bench_return is None:
+        raise OutcomeError(f"prediction {p.id} needs benchmark prices")  # guarded by resolve_pending
+    excess = stats.actual_return - bench_return
+    measures: dict[str, Any] = {"excess_return": excess, "benchmark_return": bench_return}
+    threshold = p.payload.get("attention_threshold")
+    if threshold is not None:
+        measures["attention"] = {
+            "threshold": float(threshold), "abs_return": abs(stats.actual_return),
+            "hit": abs(stats.actual_return) > float(threshold),
+        }
+    direction = p.payload.get("direction")
+    if direction in ("up", "down"):
+        hit = excess > 0 if direction == "up" else excess < 0
+        measures["direction"] = {"predicted": direction, "excess_return": excess, "hit": bool(hit)}
+    return measures
 
 
 def _prov(series: PriceSeries, frame: pd.DataFrame) -> dict[str, Any]:

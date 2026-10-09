@@ -24,6 +24,7 @@ from app.mrip.outcomes.types import (
 
 DB = pytest.mark.skipif(os.getenv("MRIP_TEST_DB") != "1", reason="set MRIP_TEST_DB=1 with a throwaway DATABASE_URL")
 MIGRATION = FsPath(__file__).resolve().parents[2] / "migrations" / "mrip_20261001_outcomes.sql"
+AUTOLOG_MIGRATION = FsPath(__file__).resolve().parents[2] / "migrations" / "mrip_20261009_prediction_log.sql"
 PROV = Provenance("fake", "test", "fake.history", datetime(2026, 10, 1, tzinfo=timezone.utc), Latency.UNKNOWN)
 
 
@@ -35,7 +36,11 @@ def sql_values(column):
 
 
 def test_sql_check_constraints_match_python_enums():
-    assert sql_values("prediction_type") == {t.value for t in PredictionType}
+    # the original migration created the first two types; mrip_20261009_prediction_log.sql extends the list
+    assert sql_values("prediction_type") == {"forecast", "options_event"}
+    extended = re.search(r"CHECK \(prediction_type IN \((.*?)\)\)", AUTOLOG_MIGRATION.read_text(encoding="utf-8"), re.S)
+    assert extended, "prediction_type check not extended"
+    assert set(re.findall(r"'([^']+)'", extended.group(1))) == {t.value for t in PredictionType}
     assert sql_values("horizon_kind") == {k.value for k in HorizonKind}
     assert sql_values("status") == {s.value for s in OutcomeStatus}
     assert {k.value for k in HorizonKind} == set(resolve.HORIZON_BARS) | {"EOD", "NEXT_SESSION", "EXPIRY"}

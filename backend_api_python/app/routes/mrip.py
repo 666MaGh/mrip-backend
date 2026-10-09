@@ -45,7 +45,10 @@ from app.mrip.evidence.store import EvidenceStore, summarize
 from app.mrip.evidence.types import RelationshipRef
 from app.mrip.options.analysis import analyze_options
 from app.mrip.options.snapshots import OptionsSnapshotStore
+from app.mrip.outcomes.jobs import LOG_JOB, RESOLVE_JOB
+from app.mrip.outcomes.reliability import model_health
 from app.mrip.outcomes.store import PredictionStore
+from app.mrip.prices.jobs import JobRunStore
 from app.mrip.prices.gateway import StoredDataGateway
 from app.mrip.prices.store import PriceStore
 from app.mrip.regime.engine import MarketRegimeEngine
@@ -96,6 +99,14 @@ def _research_card_service() -> ResearchCardService:
         outcome_store=PredictionStore(get_db_connection),
         calibration_store=CalibrationStore(get_db_connection),
     )
+
+
+def _prediction_store() -> PredictionStore:
+    return PredictionStore(get_db_connection)
+
+
+def _job_run_store() -> JobRunStore:
+    return JobRunStore(get_db_connection)
 
 
 def _related_service() -> RelatedService:
@@ -297,3 +308,16 @@ def get_symbol_regime(symbol: str):
     except UnknownSymbol:
         return _error(f"unknown symbol {symbol}", 404)
     return _ok(payload)
+
+
+# -- model health (work 023) -------------------------------------------------
+
+@mrip_blp.route('/model-health', methods=['GET'])
+@login_required
+def get_model_health():
+    """Reliability table per prediction kind and horizon, logged/resolved/unresolved counts and last job runs."""
+    data = model_health(
+        _prediction_store(), _job_run_store(),
+        job_names={"prediction_log": LOG_JOB, "outcome_resolve": RESOLVE_JOB},
+    )
+    return _ok(data)

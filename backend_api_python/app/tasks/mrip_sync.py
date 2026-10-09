@@ -91,6 +91,32 @@ def mrip_options_snapshots() -> dict[str, object]:
     }
 
 
+@celery_app.task(name="quantdinger.tasks.mrip_prediction_log")
+def mrip_prediction_log() -> dict[str, object]:
+    """Log automatic FORECAST_SCENARIO, DISCOVER_ITEM and RELATED_SIGNAL predictions (work 023).
+
+    MRIP_PREDICTION_LOG_SYMBOL_CAP limits the symbols per run (0 or unset: no cap).
+    """
+    if not _enabled("ENABLE_MRIP_PREDICTION_LOG"):
+        return {"skipped": True}
+    from app.mrip.outcomes.jobs import run_prediction_log
+
+    cap = int(os.getenv("MRIP_PREDICTION_LOG_SYMBOL_CAP", "0") or "0")
+    result = run_prediction_log(symbols_limit=cap or None)
+    return {"status": result.status, "report": result.report, "reason": result.reason}
+
+
+@celery_app.task(name="quantdinger.tasks.mrip_outcome_resolve")
+def mrip_outcome_resolve() -> dict[str, object]:
+    """Resolve logged predictions whose horizon has been observed in the stored prices (work 023)."""
+    if not _enabled("ENABLE_MRIP_OUTCOME_RESOLVE"):
+        return {"skipped": True}
+    from app.mrip.outcomes.jobs import run_outcome_resolve
+
+    result = run_outcome_resolve()
+    return {"status": result.status, "report": result.report, "reason": result.reason}
+
+
 def __serialize_report(report: object) -> dict[str, object] | None:
     """Serialize SyncReport to a JSON-safe dict."""
     if report is None:

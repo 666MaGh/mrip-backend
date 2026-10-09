@@ -66,6 +66,10 @@ class PredictionStore:
 
     def log(self, p: NewPrediction) -> Prediction:
         """Log a prediction; logging the same (type, subject, made_at, horizon, model) again returns the first."""
+        return self.log_with_status(p)[0]
+
+    def log_with_status(self, p: NewPrediction) -> tuple[Prediction, bool]:
+        """As ``log``; the flag is True when this call created the row (False: it already existed)."""
         if p.made_at.tzinfo is None:
             raise OutcomeError("made_at must be timezone-aware")
         if not p.subject.strip() or not p.model_version.strip():
@@ -92,6 +96,7 @@ class PredictionStore:
                     ),
                 )
                 row = cur.fetchone()
+                created = row is not None
                 if row is None:
                     cur.execute(
                         "SELECT " + _P_COLUMNS + " FROM mrip_predictions WHERE prediction_type = %s AND subject = %s "
@@ -102,7 +107,32 @@ class PredictionStore:
             finally:
                 cur.close()
             conn.commit()
-        return _prediction(row)
+        return _prediction(row), created
+
+    def counts_by_type(self) -> dict[str, dict[str, int]]:
+        """Logged, resolved, unresolvable and backfilled prediction counts per type."""
+        with self._connect() as conn:
+            cur = conn.cursor()
+            try:
+                cur.execute(
+                    "SELECT p.prediction_type AS t, COUNT(*) AS logged, "
+                    "COUNT(o.id) FILTER (WHERE o.status = 'resolved') AS resolved, "
+                    "COUNT(o.id) FILTER (WHERE o.status = 'unresolvable') AS unresolvable, "
+                    "COUNT(*) FILTER (WHERE p.payload->>'backfill' = 'true') AS backfilled "
+                    "FROM mrip_predictions p LEFT JOIN mrip_outcomes o ON o.prediction_id = p.id "
+                    "GROUP BY p.prediction_type"
+                )
+                rows = cur.fetchall()
+            finally:
+                cur.close()
+        out: dict[str, dict[str, int]] = {}
+        for r in rows:
+            logged, resolved, unres = int(r["logged"]), int(r["resolved"]), int(r["unresolvable"])
+            out[str(r["t"])] = {
+                "logged": logged, "resolved": resolved, "unresolvable": unres,
+                "unresolved": logged - resolved - unres, "backfilled": int(r["backfilled"]),
+            }
+        return out
 
     def get(self, prediction_id: int) -> Prediction:
         with self._connect() as conn:

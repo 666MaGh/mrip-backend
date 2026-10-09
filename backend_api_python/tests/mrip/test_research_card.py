@@ -286,7 +286,9 @@ def test_divergence_uses_discover_fit_and_reports_pair():
 def test_unavailable_reasons_are_explicit_for_reliability_and_confidence():
     card = build_service().build_card("NVDA", AS_OF)
     assert card["forecast_confidence"] == {
-        "status": "unavailable", "reason": "no fitted forecast calibration stored; forecast is uncalibrated",
+        "status": "unavailable",
+        "reason": "n=0 < 30 resolved M12 forecast outcomes; no fitted forecast calibration stored; forecast is uncalibrated",
+        "n_resolved_outcomes": 0,
     }
     assert card["historical_reliability"]["status"] == "unavailable"
     assert card["historical_reliability"]["n_resolved_outcomes"] == 0
